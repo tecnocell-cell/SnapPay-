@@ -1,0 +1,95 @@
+════════════════════════════════════════════════════════════════════
+  EASYSAC PDV WEB - RESUMO PARA AMANHÃ (17/06/2026)
+════════════════════════════════════════════════════════════════════
+
+🎯 STATUS ATUAL: MVP FUNCIONANDO ✅
+- PDV web moderno, busca produtos, carrinho, impostos, cupom fiscal
+- 50 produtos reais, banco SQL Server 2022, backend Node/Express
+
+═══════════════════════════════════════════════════════════════════
+
+⚡ INICIAR AMANHÃ (Passo a Passo)
+
+1. TERMINAL 1 - Backend
+   cd C:\Users\root\Documents\Projetos\EasySAC-Web\backend
+   npm run dev
+
+   Esperado: "API do PDV rodando em http://localhost:3001"
+
+2. TERMINAL 2 - Frontend
+   cd C:\Users\root\Documents\Projetos\EasySAC-Web\frontend
+   npm run dev
+
+   Esperado: "VITE v6.0.0 ready in 123 ms"
+   Acesso: http://localhost:5173
+
+3. ABRIR NAVEGADOR
+   http://localhost:5173 → Tela do PDV (busque "grill" para testar)
+
+═══════════════════════════════════════════════════════════════════
+
+📋 ESCOLHA UM MÓDULO PARA SPRINT 2:
+
+[ ] A) NFC-e / Emissão Fiscal (3-4h) ⭐ RECOMENDADO
+    - Mais crítico para loja real
+    - Usa schema SEFAZ já no EasySAC
+    - Gerar cupom fiscal eletrônico + SEFAZ
+
+[ ] B) Relatórios & Dashboard (2-3h)
+    - Gráficos de vendas, top produtos
+    - Cards de KPI
+
+[ ] C) Gestão de Estoque (2h)
+    - Alertas de mínimo
+    - Entrada/saída de mercadoria
+
+[ ] D) Módulo de Clientes (2h)
+    - Cadastro, histórico de compras
+    - Limite de crédito
+
+═══════════════════════════════════════════════════════════════════
+
+📂 ARQUIVOS-CHAVE
+
+Backend:
+- backend/src/server.js ............ Lógica da API (3 endpoints)
+- backend/src/db.js ................ Conexão SQL Server ODBC
+- backend/.env ..................... Credenciais (não mudar)
+
+Frontend:
+- frontend/src/App.jsx ............. Componente React principal
+- frontend/src/App.css ............. Design moderno
+
+Banco:
+- Server: localhost\SQLEXPRESS
+- Banco: EasySAC_PDV
+- Auth: Windows Integrated (Trusted Connection)
+
+═══════════════════════════════════════════════════════════════════
+
+🧪 TESTE RÁPIDO (se algo der errado)
+
+Verificar Backend:
+  curl "http://localhost:3001/api/produtos?q=grill"
+
+Deve retornar: JSON com 7 produtos de grill
+
+Verificar Banco:
+  sqlcmd -S .\SQLEXPRESS -d EasySAC_PDV -Q "SELECT COUNT(*) FROM produtos"
+
+Deve retornar: 50
+
+═══════════════════════════════════════════════════════════════════
+
+📖 DOCUMENTAÇÃO
+
+- README.md ................... Situação atual + API completa
+- ROADMAP.md ................. Próximos passos + dependências
+- Este arquivo ............... Resumo rápido para retomar
+
+═══════════════════════════════════════════════════════════════════
+
+💡 DICA: Leia o README.md primeiro, escolha o módulo, depois comece!
+
+Última atualização: 16/06/2026 18:10
+════════════════════════════════════════════════════════════════════
