@@ -8,6 +8,8 @@ function App() {
   const [resultados, setResultados] = useState([]);
   const [carrinho, setCarrinho] = useState([]);
   const [formaPagamento, setFormaPagamento] = useState("DINHEIRO");
+  const [menuAberto, setMenuAberto] = useState(false);
+  const [paginaAtual, setPaginaAtual] = useState("pdv");
   const [vendaRealizada, setVendaRealizada] = useState(null);
 
   const subtotal = carrinho.reduce((acc, item) => acc + item.quantidade * item.precoUnitario, 0);
@@ -77,10 +79,7 @@ function App() {
       const data = await res.json();
       setVendaRealizada({ ...data, itens: carrinho, subtotal, icms, pis, cofins, total });
       setCarrinho([]);
-      setTimeout(() => {
-        setVendaRealizada(null);
-        setBusca("");
-      }, 6000);
+      setTimeout(() => setVendaRealizada(null), 6000);
     }
   }
 
@@ -88,54 +87,25 @@ function App() {
     return (
       <div className="cupom-page">
         <div className="cupom">
-          <div className="cupom-header">
-            <h2>🏪 CUPOM FISCAL</h2>
-            <p>ID: #{vendaRealizada.id}</p>
-            <p>{new Date().toLocaleString("pt-BR")}</p>
-          </div>
-
+          <h2>✓ Venda Finalizada</h2>
+          <div className="cupom-numero">#{vendaRealizada.id}</div>
           <table className="cupom-itens">
             <tbody>
               {vendaRealizada.itens.map((item) => (
                 <tr key={item.produtoId}>
-                  <td className="nome">{item.nome.substring(0, 35)}</td>
-                  <td className="qty">{item.quantidade}x</td>
-                  <td className="valor">R$ {(item.quantidade * item.precoUnitario).toFixed(2)}</td>
+                  <td>{item.nome.substring(0, 40)}</td>
+                  <td>{item.quantidade}x</td>
+                  <td>R$ {(item.quantidade * item.precoUnitario).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-
           <div className="cupom-totais">
-            <div className="linha">
-              <span>Subtotal:</span>
-              <span>R$ {vendaRealizada.subtotal.toFixed(2)}</span>
-            </div>
-            <div className="linha small">
-              <span>ICMS (12%):</span>
-              <span>R$ {vendaRealizada.icms.toFixed(2)}</span>
-            </div>
-            <div className="linha small">
-              <span>PIS (1.65%):</span>
-              <span>R$ {vendaRealizada.pis.toFixed(2)}</span>
-            </div>
-            <div className="linha small">
-              <span>COFINS (7.6%):</span>
-              <span>R$ {vendaRealizada.cofins.toFixed(2)}</span>
-            </div>
-            <div className="linha total">
-              <span>TOTAL:</span>
-              <span>R$ {vendaRealizada.total.toFixed(2)}</span>
-            </div>
-            <div className="linha">
-              <span>Forma:</span>
-              <span>{formaPagamento}</span>
-            </div>
-          </div>
-
-          <div className="cupom-rodape">
-            <p>✓ Venda autenticada</p>
-            <p>Obrigado pela compra!</p>
+            <div>Subtotal: R$ {vendaRealizada.subtotal.toFixed(2)}</div>
+            <div className="small">ICMS: R$ {vendaRealizada.icms.toFixed(2)}</div>
+            <div className="small">PIS: R$ {vendaRealizada.pis.toFixed(2)}</div>
+            <div className="small">COFINS: R$ {vendaRealizada.cofins.toFixed(2)}</div>
+            <div className="total">TOTAL: R$ {vendaRealizada.total.toFixed(2)}</div>
           </div>
         </div>
       </div>
@@ -143,145 +113,203 @@ function App() {
   }
 
   return (
-    <div className="pdv-container">
-      <header className="pdv-header">
-        <div className="header-left">
-          <h1>🏪 EasySAC PDV</h1>
-          <p>Sistema de Frente de Caixa</p>
+    <div className="app">
+      {/* HEADER */}
+      <header className="header">
+        <div className="header-brand">
+          <h1>💳 SnapPay</h1>
+          <p>Seu PDV na Nuvem</p>
         </div>
-        <div className="header-right">
+        <div className="header-info">
           <span>👤 Admin</span>
           <span>📍 Loja 001</span>
-          <span>⏰ {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+          <span>🟢 Online</span>
         </div>
       </header>
 
-      <div className="pdv-main">
-        {/* AREA DE PRODUTOS */}
-        <div className="produtos-area">
-          <div className="busca-section">
-            <input
-              autoFocus
-              type="text"
-              placeholder="🔍 Digite código de barras ou nome do produto..."
-              value={busca}
-              onChange={(e) => buscarProdutos(e.target.value)}
-              className="busca-input"
-            />
+      <div className="main-layout">
+        {/* SIDEBAR */}
+        <aside className={`sidebar ${menuAberto ? "aberto" : ""}`}>
+          <nav className="menu">
+            <a
+              href="#pdv"
+              className={`menu-item ${paginaAtual === "pdv" ? "ativo" : ""}`}
+              onClick={() => { setPaginaAtual("pdv"); setMenuAberto(false); }}
+            >
+              <span className="icon">🛒</span>
+              <span>PDV</span>
+            </a>
+            <a href="#estoque" className="menu-item">
+              <span className="icon">📦</span>
+              <span>Estoque</span>
+            </a>
+            <a href="#vendas" className="menu-item">
+              <span className="icon">📊</span>
+              <span>Vendas</span>
+            </a>
+            <a href="#clientes" className="menu-item">
+              <span className="icon">👥</span>
+              <span>Clientes</span>
+            </a>
+            <a href="#financeiro" className="menu-item">
+              <span className="icon">💰</span>
+              <span>Financeiro</span>
+            </a>
+            <a href="#relatorios" className="menu-item">
+              <span className="icon">📈</span>
+              <span>Relatórios</span>
+            </a>
+            <hr className="menu-divisor" />
+            <a href="#config" className="menu-item">
+              <span className="icon">⚙️</span>
+              <span>Configurações</span>
+            </a>
+            <a href="#sair" className="menu-item sair">
+              <span className="icon">🚪</span>
+              <span>Sair</span>
+            </a>
+          </nav>
+        </aside>
+
+        {/* CONTEÚDO PRINCIPAL */}
+        <main className="content">
+          {/* BUSCA E TITULO */}
+          <div className="page-header">
+            <h2>Ponto de Venda</h2>
+            <div className="busca-container">
+              <input
+                autoFocus
+                type="text"
+                placeholder="Busque produtos, código de barras..."
+                value={busca}
+                onChange={(e) => buscarProdutos(e.target.value)}
+                className="busca-input"
+              />
+              <span className="search-icon">🔍</span>
+            </div>
           </div>
 
-          <div className="produtos-grid">
-            {resultados.length > 0 ? (
-              resultados.map((p) => (
-                <div
-                  key={p.id}
-                  className="produto-card"
-                  onClick={() => adicionarAoCarrinho(p)}
-                >
-                  <div className="produto-info">
-                    <h4>{p.nome.substring(0, 40)}</h4>
-                    <small>Cód: {p.codigo}</small>
+          <div className="pdv-grid">
+            {/* PRODUTOS */}
+            <div className="produtos-section">
+              <div className="produtos-container">
+                {resultados.length > 0 ? (
+                  <div className="produtos-grid">
+                    {resultados.map((p) => (
+                      <div key={p.id} className="produto-card" onClick={() => adicionarAoCarrinho(p)}>
+                        <div className="produto-header">
+                          <span className="badge">{p.estoque_atual}</span>
+                        </div>
+                        <div className="produto-info">
+                          <h4>{p.nome.substring(0, 45)}</h4>
+                          <small>Cód: {p.codigo}</small>
+                        </div>
+                        <div className="produto-preco">
+                          <span>R$ {Number(p.preco_venda).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="produto-preco">
-                    <span className="preco">R$ {Number(p.preco_venda).toFixed(2)}</span>
-                    <span className="estoque">Est: {p.estoque_atual}</span>
+                ) : (
+                  <div className="vazio">
+                    <div className="vazio-icon">🔍</div>
+                    <p>Digite o código ou nome do produto</p>
+                    <small>Comece digitando para ver produtos disponíveis</small>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* CARRINHO */}
+            <aside className="carrinho-sidebar">
+              <div className="carrinho-header">
+                <h3>🛒 Carrinho</h3>
+                <span className="badge-count">{carrinho.length}</span>
+              </div>
+
+              <div className="carrinho-items">
+                {carrinho.length === 0 ? (
+                  <div className="carrinho-vazio">
+                    <div className="icon">🛍️</div>
+                    <p>Nenhum item</p>
+                  </div>
+                ) : (
+                  <table>
+                    <tbody>
+                      {carrinho.map((item) => (
+                        <tr key={item.produtoId}>
+                          <td className="nome">
+                            <div>{item.nome.substring(0, 20)}</div>
+                            <div className="preco-item">R$ {item.precoUnitario.toFixed(2)}</div>
+                          </td>
+                          <td className="qty">
+                            <input
+                              type="number"
+                              min="1"
+                              value={item.quantidade}
+                              onChange={(e) => alterarQuantidade(item.produtoId, Number(e.target.value))}
+                            />
+                          </td>
+                          <td className="subtotal">R$ {(item.quantidade * item.precoUnitario).toFixed(2)}</td>
+                          <td className="remove">
+                            <button onClick={() => removerItem(item.produtoId)}>✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div className="carrinho-footer">
+                <div className="resumo">
+                  <div className="linha">
+                    <span>Subtotal</span>
+                    <strong>R$ {subtotal.toFixed(2)}</strong>
+                  </div>
+                  <div className="linha tax">
+                    <small>ICMS (12%)</small>
+                    <small>R$ {icms.toFixed(2)}</small>
+                  </div>
+                  <div className="linha tax">
+                    <small>PIS (1.65%)</small>
+                    <small>R$ {pis.toFixed(2)}</small>
+                  </div>
+                  <div className="linha tax">
+                    <small>COFINS (7.6%)</small>
+                    <small>R$ {cofins.toFixed(2)}</small>
+                  </div>
+                  <hr />
+                  <div className="linha total">
+                    <span>TOTAL</span>
+                    <strong>R$ {total.toFixed(2)}</strong>
                   </div>
                 </div>
-              ))
-            ) : (
-              <div className="vazio-message">
-                <p>🔍 Digite para buscar produtos...</p>
+
+                <div className="pagamento">
+                  <label>Pagamento:</label>
+                  <select value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)}>
+                    <option>💵 DINHEIRO</option>
+                    <option>🏧 DÉBITO</option>
+                    <option>💳 CRÉDITO</option>
+                    <option>📱 PIX</option>
+                    <option>📋 CREDIÁRIO</option>
+                  </select>
+
+                  <button onClick={finalizarVenda} disabled={carrinho.length === 0} className="btn-checkout">
+                    ✓ FINALIZAR
+                  </button>
+                </div>
               </div>
-            )}
+            </aside>
           </div>
-        </div>
-
-        {/* CARRINHO LATERAL */}
-        <aside className="carrinho-lateral">
-          <div className="carrinho-header">
-            <h3>🛒 CARRINHO</h3>
-            <span className="item-count">{carrinho.length}</span>
-          </div>
-
-          <div className="carrinho-itens">
-            {carrinho.length === 0 ? (
-              <p className="vazio">Nenhum item</p>
-            ) : (
-              <table>
-                <tbody>
-                  {carrinho.map((item) => (
-                    <tr key={item.produtoId} className="item-row">
-                      <td className="item-nome">
-                        <div>{item.nome.substring(0, 25)}</div>
-                        <div className="item-preco">R$ {item.precoUnitario.toFixed(2)}</div>
-                      </td>
-                      <td className="item-qty">
-                        <input
-                          type="number"
-                          min="1"
-                          value={item.quantidade}
-                          onChange={(e) =>
-                            alterarQuantidade(item.produtoId, Number(e.target.value))
-                          }
-                        />
-                      </td>
-                      <td className="item-subtotal">
-                        R$ {(item.quantidade * item.precoUnitario).toFixed(2)}
-                      </td>
-                      <td className="item-remove">
-                        <button onClick={() => removerItem(item.produtoId)}>✕</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div className="carrinho-resumo">
-            <div className="resumo-line">
-              <span>Subtotal:</span>
-              <strong>R$ {subtotal.toFixed(2)}</strong>
-            </div>
-            <div className="resumo-line imposto">
-              <small>ICMS:</small>
-              <small>R$ {icms.toFixed(2)}</small>
-            </div>
-            <div className="resumo-line imposto">
-              <small>PIS:</small>
-              <small>R$ {pis.toFixed(2)}</small>
-            </div>
-            <div className="resumo-line imposto">
-              <small>COFINS:</small>
-              <small>R$ {cofins.toFixed(2)}</small>
-            </div>
-            <hr />
-            <div className="resumo-line total">
-              <span>TOTAL:</span>
-              <strong>R$ {total.toFixed(2)}</strong>
-            </div>
-          </div>
-
-          <div className="pagamento-section">
-            <label>Forma de Pagamento:</label>
-            <select value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)}>
-              <option>DINHEIRO</option>
-              <option>DÉBITO</option>
-              <option>CRÉDITO</option>
-              <option>PIX</option>
-              <option>CREDIÁRIO</option>
-            </select>
-
-            <button
-              onClick={finalizarVenda}
-              disabled={carrinho.length === 0}
-              className="btn-finalizar"
-            >
-              💳 FINALIZAR VENDA
-            </button>
-          </div>
-        </aside>
+        </main>
       </div>
+
+      {/* MENU MOBILE TOGGLE */}
+      <button className="menu-toggle" onClick={() => setMenuAberto(!menuAberto)}>
+        ☰
+      </button>
     </div>
   );
 }
