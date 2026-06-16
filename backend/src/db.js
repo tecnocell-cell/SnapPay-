@@ -1,9 +1,14 @@
-import sql from "mssql/msnodesqlv8.js";
+import pg from "pg";
 import "dotenv/config";
 
-const config = {
-  connectionString: `Driver={ODBC Driver 17 for SQL Server};Server=${process.env.DB_SERVER};Database=${process.env.DB_DATABASE};Trusted_Connection=Yes;`,
-};
+const { Pool } = pg;
 
-export const poolPromise = sql.connect(config);
-export { sql };
+export const pool = new Pool({
+  host: process.env.DB_HOST || "localhost",
+  port: Number(process.env.DB_PORT || 5432),
+  user: process.env.DB_USER || "postgres",
+  password: process.env.DB_PASSWORD || "postgres",
+  database: process.env.DB_DATABASE || "easysac_pdv",
+});
+
+export const query = (text, params) => pool.query(text, params);
