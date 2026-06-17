@@ -20,6 +20,7 @@ import Financeiro from "./pages/Financeiro";
 import Configuracoes from "./pages/Configuracoes";
 import Auditoria from "./pages/Auditoria";
 import Kardex from "./pages/Kardex";
+import Dashboard from "./pages/Dashboard";
 
 const PAGINAS = {
   pdv: { comp: <PDV />, modulo: "pdv" },
@@ -37,6 +38,7 @@ const PAGINAS = {
   configuracoes: { comp: <Configuracoes />, modulo: "cadastro" },
   auditoria: { comp: <Auditoria />, modulo: "cadastro" },
   kardex: { comp: <Kardex />, modulo: "estoque" },
+  dashboard: { comp: <Dashboard />, modulo: "cadastro" },
 };
 
 function Relogio() {
