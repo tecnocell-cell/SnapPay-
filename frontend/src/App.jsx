@@ -25,6 +25,8 @@ import Empresa from "./pages/Empresa";
 import Inventario from "./pages/Inventario";
 import FiscalConfig from "./pages/FiscalConfig";
 import NotasFiscais from "./pages/NotasFiscais";
+import Offline from "./pages/Offline";
+import { observarConexao } from "./lib/offline";
 
 const PAGINAS = {
   pdv: { comp: <PDV />, modulo: "pdv" },
@@ -47,6 +49,7 @@ const PAGINAS = {
   empresa: { comp: <Empresa />, modulo: "cadastro" },
   notasfiscais: { comp: <NotasFiscais />, modulo: "vendas" },
   fiscalconfig: { comp: <FiscalConfig />, modulo: "cadastro" },
+  offline: { comp: <Offline />, modulo: "pdv" },
 };
 
 function Relogio() {
@@ -60,6 +63,9 @@ export default function App() {
   const { isAtivo } = useModules();
   const [pagina, setPagina] = useState("pdv");
   const [menuAberto, setMenuAberto] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+
+  useEffect(() => observarConexao(setOnline), []);
 
   if (carregando) return <div className="splash">💳 SnapPay — carregando…</div>;
   if (!usuario) return <Login />;
@@ -78,7 +84,7 @@ export default function App() {
         <div className="header-info">
           <span>👤 {usuario.nome} <em>({usuario.papel})</em></span>
           <span>🏪 {empresa?.nome}</span>
-          <span>🟢 Online</span>
+          <span style={{ color: online ? undefined : "#fca5a5" }}>{online ? "🟢 Online" : "🔴 Offline"}</span>
           <Relogio />
           <button className="btn-sair" onClick={logout}>🚪 Sair</button>
         </div>

@@ -18,6 +18,7 @@ import auditoriaRoutes from "./routes/auditoria.js";
 import empresaRoutes from "./routes/empresa.js";
 import inventarioRoutes from "./routes/inventario.js";
 import fiscalRoutes from "./routes/fiscal.js";
+import syncRoutes from "./routes/sync.js";
 
 const app = express();
 app.use(cors());
@@ -51,6 +52,9 @@ app.use("/api/inventario", inventarioRoutes);
 
 // Fase 4 — Fiscal (arquitetura plugável; provider mock em homologação)
 app.use("/api/fiscal", fiscalRoutes);
+
+// Fase 5 — Offline First / sincronização de terminais PDV
+app.use("/api/sync", syncRoutes);
 
 // ----------------------------------------------------------------------------
 // VENDAS
