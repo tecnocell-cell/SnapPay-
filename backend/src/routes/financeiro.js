@@ -9,19 +9,24 @@ router.get("/pagar", requireAuth, async (req, res) => {
   const { status } = req.query;
   const eid = empresaId(req);
   let sql =
-    `SELECT id, fornecedor_id, f.nome AS fornecedor_nome, compra_id, valor, data_vencimento, status, observacoes, criado_em
+    `SELECT cp.id, cp.fornecedor_id, f.nome AS fornecedor_nome, cp.compra_id, cp.valor,
+            cp.data_vencimento, cp.status, cp.observacoes, cp.criado_em
      FROM contas_pagar cp JOIN fornecedores f ON f.id = cp.fornecedor_id
      WHERE cp.empresa_id = $1`;
   const params = [eid];
 
   if (status) {
     params.push(status);
-    sql += ` AND status = $${params.length}`;
+    sql += ` AND cp.status = $${params.length}`;
   }
-  sql += " ORDER BY data_vencimento ASC";
+  sql += " ORDER BY cp.data_vencimento ASC";
 
-  const result = await query(sql, params);
-  res.json(result.rows);
+  try {
+    const result = await query(sql, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/financeiro/receber
@@ -29,19 +34,24 @@ router.get("/receber", requireAuth, async (req, res) => {
   const { status } = req.query;
   const eid = empresaId(req);
   let sql =
-    `SELECT id, cliente_id, c.nome AS cliente_nome, venda_id, valor, data_vencimento, status, observacoes, criado_em
+    `SELECT cr.id, cr.cliente_id, c.nome AS cliente_nome, cr.venda_id, cr.valor,
+            cr.data_vencimento, cr.status, cr.observacoes, cr.criado_em
      FROM contas_receber cr JOIN clientes c ON c.id = cr.cliente_id
      WHERE cr.empresa_id = $1`;
   const params = [eid];
 
   if (status) {
     params.push(status);
-    sql += ` AND status = $${params.length}`;
+    sql += ` AND cr.status = $${params.length}`;
   }
-  sql += " ORDER BY data_vencimento ASC";
+  sql += " ORDER BY cr.data_vencimento ASC";
 
-  const result = await query(sql, params);
-  res.json(result.rows);
+  try {
+    const result = await query(sql, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/financeiro/pagar

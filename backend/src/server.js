@@ -137,7 +137,8 @@ app.post("/api/vendas", requireAuth, async (req, res) => {
 });
 
 app.get("/api/vendas/:id", async (req, res) => {
-  const venda = await query("SELECT * FROM vendas WHERE id = $1", [req.params.id]);
+  const venda = await query("SELECT * FROM vendas WHERE id = $1 AND empresa_id = $2", [req.params.id, empresaId(req)]);
+  if (venda.rowCount === 0) return res.status(404).json({ error: "Venda não encontrada" });
   const itens = await query(
     `SELECT vi.*, p.nome FROM venda_itens vi JOIN produtos p ON p.id = vi.produto_id WHERE vi.venda_id = $1`,
     [req.params.id]
@@ -150,7 +151,9 @@ app.get("/api/vendas", async (req, res) => {
     `SELECT v.id, v.valor_total, v.status, v.aberta_em, v.finalizada_em, c.nome AS cliente_nome,
             (SELECT string_agg(forma, ', ') FROM venda_pagamentos WHERE venda_id = v.id) AS formas
      FROM vendas v LEFT JOIN clientes c ON c.id = v.cliente_id
-     ORDER BY v.id DESC LIMIT 100`
+     WHERE v.empresa_id = $1
+     ORDER BY v.id DESC LIMIT 100`,
+    [empresaId(req)]
   );
   res.json(result.rows);
 });
@@ -159,7 +162,7 @@ app.post("/api/vendas/:id/cancelar", async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const venda = await client.query("SELECT status FROM vendas WHERE id = $1", [req.params.id]);
+    const venda = await client.query("SELECT status FROM vendas WHERE id = $1 AND empresa_id = $2", [req.params.id, empresaId(req)]);
     if (venda.rowCount === 0) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Venda não encontrada" }); }
     if (venda.rows[0].status === "CANCELADA") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Venda já cancelada" }); }
     // devolve estoque
@@ -188,11 +191,11 @@ app.post("/api/vendas/:id/cancelar", async (req, res) => {
 // ----------------------------------------------------------------------------
 app.get("/api/clientes", async (req, res) => {
   const { q } = req.query;
-  let sql = "SELECT * FROM clientes WHERE ativo = TRUE";
-  const params = [];
+  const params = [empresaId(req)];
+  let sql = "SELECT * FROM clientes WHERE ativo = TRUE AND empresa_id = $1";
   if (q) {
     params.push(`%${q}%`, `%${q}%`);
-    sql += " AND (nome ILIKE $1 OR cpf_cnpj ILIKE $2)";
+    sql += ` AND (nome ILIKE $${params.length - 1} OR cpf_cnpj ILIKE $${params.length})`;
   }
   sql += " ORDER BY nome";
   const result = await query(sql, params);
@@ -203,17 +206,17 @@ app.post("/api/clientes", async (req, res) => {
   const { nome, cpf_cnpj, telefone, email, limite_credito } = req.body;
   if (!nome) return res.status(400).json({ error: "Nome obrigatório" });
   const result = await query(
-    `INSERT INTO clientes (nome, cpf_cnpj, telefone, email, limite_credito)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [nome, cpf_cnpj || null, telefone || null, email || null, limite_credito || 0]
+    `INSERT INTO clientes (nome, cpf_cnpj, telefone, email, limite_credito, empresa_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [nome, cpf_cnpj || null, telefone || null, email || null, limite_credito || 0, empresaId(req)]
   );
   res.status(201).json(result.rows[0]);
 });
 
 app.get("/api/clientes/:id/historico", async (req, res) => {
   const result = await query(
-    "SELECT id, valor_total, status, finalizada_em FROM vendas WHERE cliente_id = $1 ORDER BY aberta_em DESC",
-    [req.params.id]
+    "SELECT id, valor_total, status, finalizada_em FROM vendas WHERE cliente_id = $1 AND empresa_id = $2 ORDER BY aberta_em DESC",
+    [req.params.id, empresaId(req)]
   );
   res.json(result.rows);
 });
@@ -223,7 +226,8 @@ app.get("/api/clientes/:id/historico", async (req, res) => {
 // ----------------------------------------------------------------------------
 app.get("/api/estoque/alertas", async (req, res) => {
   const result = await query(
-    "SELECT id, codigo, nome, estoque_atual, estoque_minimo FROM produtos WHERE estoque_atual <= estoque_minimo AND ativo = TRUE ORDER BY estoque_atual"
+    "SELECT id, codigo, nome, estoque_atual, estoque_minimo FROM produtos WHERE estoque_atual <= estoque_minimo AND ativo = TRUE AND empresa_id = $1 ORDER BY estoque_atual",
+    [empresaId(req)]
   );
   res.json(result.rows);
 });
@@ -258,11 +262,14 @@ app.post("/api/estoque/movimentar", async (req, res) => {
 // RELATÓRIOS (Sprint 2B)
 // ----------------------------------------------------------------------------
 app.get("/api/relatorios/resumo", async (req, res) => {
+  const eid = empresaId(req);
   const hoje = await query(
-    "SELECT COALESCE(SUM(valor_total),0) AS total, COUNT(*) AS qtd FROM vendas WHERE status = 'FINALIZADA' AND finalizada_em::date = CURRENT_DATE"
+    "SELECT COALESCE(SUM(valor_total),0) AS total, COUNT(*) AS qtd FROM vendas WHERE status = 'FINALIZADA' AND empresa_id = $1 AND finalizada_em::date = CURRENT_DATE",
+    [eid]
   );
   const geral = await query(
-    "SELECT COALESCE(SUM(valor_total),0) AS total, COUNT(*) AS qtd FROM vendas WHERE status = 'FINALIZADA'"
+    "SELECT COALESCE(SUM(valor_total),0) AS total, COUNT(*) AS qtd FROM vendas WHERE status = 'FINALIZADA' AND empresa_id = $1",
+    [eid]
   );
   const ticket = Number(geral.rows[0].qtd) > 0 ? Number(geral.rows[0].total) / Number(geral.rows[0].qtd) : 0;
   res.json({
@@ -278,8 +285,9 @@ app.get("/api/relatorios/top-produtos", async (req, res) => {
     `SELECT p.id, p.nome, SUM(vi.quantidade) AS qtd, SUM(vi.valor_total) AS total
      FROM venda_itens vi JOIN produtos p ON p.id = vi.produto_id
      JOIN vendas v ON v.id = vi.venda_id AND v.status = 'FINALIZADA'
+     WHERE v.empresa_id = $2
      GROUP BY p.id, p.nome ORDER BY qtd DESC LIMIT $1`,
-    [limite]
+    [limite, empresaId(req)]
   );
   res.json(result.rows);
 });
@@ -287,18 +295,38 @@ app.get("/api/relatorios/top-produtos", async (req, res) => {
 app.get("/api/relatorios/vendas-por-dia", async (req, res) => {
   const result = await query(
     `SELECT finalizada_em::date AS dia, COUNT(*) AS qtd, SUM(valor_total) AS total
-     FROM vendas WHERE status = 'FINALIZADA' AND finalizada_em >= CURRENT_DATE - INTERVAL '30 days'
-     GROUP BY finalizada_em::date ORDER BY dia`
+     FROM vendas WHERE status = 'FINALIZADA' AND empresa_id = $1 AND finalizada_em >= CURRENT_DATE - INTERVAL '30 days'
+     GROUP BY finalizada_em::date ORDER BY dia`,
+    [empresaId(req)]
   );
   res.json(result.rows);
 });
 
 app.get("/api/relatorios/pagamentos", async (req, res) => {
   const result = await query(
-    `SELECT forma, COUNT(*) AS qtd, SUM(valor) AS total
-     FROM venda_pagamentos GROUP BY forma ORDER BY total DESC`
+    `SELECT vp.forma, COUNT(*) AS qtd, SUM(vp.valor) AS total
+     FROM venda_pagamentos vp JOIN vendas v ON v.id = vp.venda_id
+     WHERE v.empresa_id = $1
+     GROUP BY vp.forma ORDER BY total DESC`,
+    [empresaId(req)]
   );
   res.json(result.rows);
+});
+
+// Tratador de erros do Express: captura erros (inclusive de rotas async que
+// rejeitam) e responde 500 em vez de derrubar o processo.
+app.use((err, req, res, next) => {
+  console.error("Erro não tratado em rota:", err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: err.message || "Erro interno do servidor" });
+});
+
+// Rede de segurança a nível de processo: loga e segue em vez de matar o servidor.
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandledRejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("uncaughtException:", err);
 });
 
 const port = process.env.PORT || 3001;

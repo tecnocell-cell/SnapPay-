@@ -67,7 +67,7 @@ CREATE INDEX ix_venda_pagamentos_venda ON venda_pagamentos(venda_id);
 CREATE TABLE estoque_movimentacao (
     id              SERIAL PRIMARY KEY,
     produto_id      INT NOT NULL REFERENCES produtos(id),
-    tipo            VARCHAR(10) NOT NULL, -- ENTRADA, SAIDA, AJUSTE
+    tipo            VARCHAR(30) NOT NULL, -- ENTRADA_COMPRA, SAIDA_VENDA, AJUSTE_ENTRADA, AJUSTE_SAIDA, CANCELAMENTO_VENDA, DEVOLUCAO, INVENTARIO
     quantidade      NUMERIC(12,3) NOT NULL,
     observacao      VARCHAR(200) NULL,
     criado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW()
