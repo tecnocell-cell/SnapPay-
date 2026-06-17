@@ -25,7 +25,7 @@ import Empresa from "./pages/Empresa";
 import Inventario from "./pages/Inventario";
 import FiscalConfig from "./pages/FiscalConfig";
 import NotasFiscais from "./pages/NotasFiscais";
-import Offline from "./pages/Offline";
+import TerminaisPDV from "./pages/TerminaisPDV";
 import { observarConexao } from "./lib/offline";
 
 const PAGINAS = {
@@ -49,7 +49,7 @@ const PAGINAS = {
   empresa: { comp: <Empresa />, modulo: "cadastro" },
   notasfiscais: { comp: <NotasFiscais />, modulo: "vendas" },
   fiscalconfig: { comp: <FiscalConfig />, modulo: "cadastro" },
-  offline: { comp: <Offline />, modulo: "pdv" },
+  terminais: { comp: <TerminaisPDV />, modulo: "cadastro" },
 };
 
 function Relogio() {

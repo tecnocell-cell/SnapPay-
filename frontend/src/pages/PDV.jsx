@@ -6,6 +6,10 @@ import { DescontoModal } from "../components/DescontoModal";
 import { PagamentoModal } from "../components/PagamentoModal";
 import { CaixaRapido } from "../components/CaixaRapido";
 import { ComprovanteVenda } from "../components/ComprovanteVenda";
+import {
+  observarConexao, adicionarVendaLocal, listarPendentes,
+  sincronizar, removerSincronizadas, getDeviceId,
+} from "../lib/offline";
 
 const MODOS = [
   { id: "mercado", label: "Mercado", icon: "🏪" },
@@ -28,6 +32,12 @@ export default function PDV() {
   const [erro, setErro] = useState("");
   const [modo, setModo] = useState(() => localStorage.getItem("snappay_pdv_modo") || "mercado");
   const [itemSelecionado, setItemSelecionado] = useState(null);
+
+  // Offline First (transparente para o operador)
+  const [online, setOnline] = useState(navigator.onLine);
+  const [pendentesCount, setPendentesCount] = useState(0);
+  const [syncErro, setSyncErro] = useState(false);
+  const [aviso, setAviso] = useState("");
 
   // Modais
   const [modalCliente, setModalCliente] = useState(false);
@@ -66,9 +76,40 @@ export default function PDV() {
       const c = await api.get("/caixa/atual");
       setCaixa(c);
     } catch (err) {
-      setErro("Erro ao carregar status do caixa");
+      // offline: mantém último status conhecido do caixa
     }
   }
+
+  // ---- Offline First (background) ----
+  async function atualizarPendentes() {
+    const pend = (await listarPendentes()).filter((p) => p.status === "PENDENTE" || p.status === "ERRO");
+    setPendentesCount(pend.length);
+    return pend.length;
+  }
+
+  // Sincroniza pendentes em background (sem expor detalhes técnicos).
+  async function sincronizarBackground() {
+    const dev = getDeviceId();
+    const qtd = await atualizarPendentes();
+    if (!dev || qtd === 0) { setSyncErro(qtd > 0 && !dev); return; }
+    try {
+      await sincronizar(api, dev);
+      await removerSincronizadas();
+      const restantes = await atualizarPendentes();
+      setSyncErro(restantes > 0);
+      if (restantes === 0) { carregarCaixa(); carregarProdutos(); }
+    } catch {
+      setSyncErro(true);
+    }
+  }
+
+  // Observa conexão e dispara sync ao voltar online.
+  useEffect(() => observarConexao(setOnline), []);
+  useEffect(() => {
+    atualizarPendentes();
+    if (online) sincronizarBackground();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
 
   // ---- Carrinho ----
   const subtotal = carrinho.reduce((a, i) => a + i.quantidade * i.precoUnitario, 0);
@@ -180,6 +221,35 @@ export default function PDV() {
     setErro("");
     setModalPagamento(false);
 
+    // OFFLINE: grava a venda localmente (IndexedDB) e segue vendendo.
+    if (!online) {
+      try {
+        await adicionarVendaLocal({
+          cliente_id: clienteId ? Number(clienteId) : null,
+          itens: carrinho.map((i) => ({
+            produto_id: i.produtoId,
+            quantidade: i.quantidade,
+            preco_unitario: i.precoUnitario,
+            desconto: desconto.final / carrinho.length,
+          })),
+          pagamentos: pagsPagamento,
+        });
+        // ajusta estoque local p/ manter a venda seguinte consistente
+        setProdutos((prev) => prev.map((p) => {
+          const it = carrinho.find((c) => c.produtoId === p.id);
+          return it ? { ...p, estoque_atual: Number(p.estoque_atual) - it.quantidade } : p;
+        }));
+        setAviso("✓ Venda registrada. Será sincronizada automaticamente quando a internet voltar.");
+        setTimeout(() => setAviso(""), 4000);
+        limpar();
+        atualizarPendentes();
+      } catch (err) {
+        setErro(`❌ Não foi possível registrar a venda offline: ${err.message}`);
+      }
+      return;
+    }
+
+    // ONLINE: fluxo normal pelo backend.
     try {
       const venda = await api.post("/vendas", {
         clienteId: clienteId ? Number(clienteId) : null,
@@ -314,6 +384,22 @@ export default function PDV() {
 
   return (
     <div className="pdv2">
+      {!online && (
+        <div className="pdv2-aviso offline">
+          📴 Offline — vendas serão sincronizadas automaticamente
+          {pendentesCount > 0 && <span> · {pendentesCount} venda(s) pendente(s)</span>}
+        </div>
+      )}
+      {online && syncErro && (
+        <div className="pdv2-aviso erro">
+          ⚠️ Existem vendas pendentes de sincronização. Chame o administrador.
+        </div>
+      )}
+      {online && !syncErro && pendentesCount > 0 && (
+        <div className="pdv2-aviso pend">⟳ Sincronizando {pendentesCount} venda(s)…</div>
+      )}
+      {aviso && <div className="pdv2-aviso ok">{aviso}</div>}
+
       <div className="pdv2-header">
         <div className="pdv2-modos">
           {MODOS.map((m) => (

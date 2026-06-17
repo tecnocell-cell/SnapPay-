@@ -9,7 +9,6 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 export const REGISTRY = [
   { id: "dashboard", modulo: "relatorios", label: "Dashboard", icon: "📊", perm: "relatorios.ver" },
   { id: "pdv", modulo: "pdv", label: "PDV", icon: "💳", perm: null },
-  { id: "offline", modulo: "pdv", label: "PDV Offline", icon: "📶", perm: null },
   { id: "produtos", modulo: "produtos", label: "Produtos", icon: "📦", perm: "produtos.ver" },
   { id: "categorias", modulo: "produtos", label: "Categorias", icon: "🏷️", perm: "produtos.ver" },
   { id: "estoque", modulo: "estoque", label: "Estoque", icon: "📦", perm: "estoque.editar" },
@@ -26,6 +25,7 @@ export const REGISTRY = [
   { id: "empresa", modulo: "cadastro", label: "Empresa", icon: "🏢", perm: "config.editar" },
   { id: "configuracoes", modulo: "cadastro", label: "Configurações", icon: "⚙️", perm: "config.editar" },
   { id: "fiscalconfig", modulo: "cadastro", label: "Config. Fiscal", icon: "🧾", perm: "fiscal.configurar" },
+  { id: "terminais", modulo: "cadastro", label: "Terminais PDV", icon: "🖥️", perm: "dispositivos.gerenciar" },
   { id: "auditoria", modulo: "cadastro", label: "Auditoria", icon: "📋", perm: "auditoria.ver" },
   { id: "modulos", modulo: "cadastro", label: "Módulos", icon: "🧩", perm: "modulos.gerenciar" },
 ];
