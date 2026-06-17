@@ -17,6 +17,7 @@ import configuracoes from "./routes/configuracoes.js";
 import auditoriaRoutes from "./routes/auditoria.js";
 import empresaRoutes from "./routes/empresa.js";
 import inventarioRoutes from "./routes/inventario.js";
+import fiscalRoutes from "./routes/fiscal.js";
 
 const app = express();
 app.use(cors());
@@ -47,6 +48,9 @@ app.use("/api/produtos", produtosRoutes);
 app.use("/api/marcas", marcasRoutes);
 app.use("/api/empresa", empresaRoutes);
 app.use("/api/inventario", inventarioRoutes);
+
+// Fase 4 — Fiscal (arquitetura plugável; provider mock em homologação)
+app.use("/api/fiscal", fiscalRoutes);
 
 // ----------------------------------------------------------------------------
 // VENDAS
@@ -172,6 +176,12 @@ app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async 
     const venda = await client.query("SELECT status FROM vendas WHERE id = $1 AND empresa_id = $2", [req.params.id, eid]);
     if (venda.rowCount === 0) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Venda não encontrada" }); }
     if (venda.rows[0].status === "CANCELADA") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Venda já cancelada" }); }
+    // Bloqueia cancelamento se houver nota fiscal autorizada/contingência (deve-se cancelar a nota antes)
+    const notaAtiva = await client.query(
+      "SELECT id FROM fiscal_notas WHERE venda_id = $1 AND status IN ('AUTORIZADA','CONTINGENCIA')",
+      [req.params.id]
+    );
+    if (notaAtiva.rowCount > 0) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Venda possui NFC-e autorizada. Cancele a nota fiscal antes de cancelar a venda." }); }
     // devolve estoque
     const itens = await client.query("SELECT produto_id, quantidade FROM venda_itens WHERE venda_id = $1", [req.params.id]);
     for (const it of itens.rows) {

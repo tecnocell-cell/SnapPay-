@@ -20,9 +20,11 @@ export const REGISTRY = [
   { id: "fornecedores", modulo: "produtos", label: "Fornecedores", icon: "🏭", perm: "compras.gerenciar" },
   { id: "compras", modulo: "estoque", label: "Compras", icon: "🛒", perm: "compras.gerenciar" },
   { id: "financeiro", modulo: "financeiro", label: "Financeiro", icon: "💵", perm: "financeiro.ver" },
+  { id: "notasfiscais", modulo: "vendas", label: "Notas Fiscais", icon: "🧾", perm: "fiscal.emitir" },
   { id: "relatorios", modulo: "relatorios", label: "Relatórios", icon: "📉", perm: "relatorios.ver" },
   { id: "empresa", modulo: "cadastro", label: "Empresa", icon: "🏢", perm: "config.editar" },
   { id: "configuracoes", modulo: "cadastro", label: "Configurações", icon: "⚙️", perm: "config.editar" },
+  { id: "fiscalconfig", modulo: "cadastro", label: "Config. Fiscal", icon: "🧾", perm: "fiscal.configurar" },
   { id: "auditoria", modulo: "cadastro", label: "Auditoria", icon: "📋", perm: "auditoria.ver" },
   { id: "modulos", modulo: "cadastro", label: "Módulos", icon: "🧩", perm: "modulos.gerenciar" },
 ];

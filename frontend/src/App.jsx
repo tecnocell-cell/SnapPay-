@@ -23,6 +23,8 @@ import Kardex from "./pages/Kardex";
 import Dashboard from "./pages/Dashboard";
 import Empresa from "./pages/Empresa";
 import Inventario from "./pages/Inventario";
+import FiscalConfig from "./pages/FiscalConfig";
+import NotasFiscais from "./pages/NotasFiscais";
 
 const PAGINAS = {
   pdv: { comp: <PDV />, modulo: "pdv" },
@@ -43,6 +45,8 @@ const PAGINAS = {
   inventario: { comp: <Inventario />, modulo: "estoque" },
   dashboard: { comp: <Dashboard />, modulo: "relatorios" },
   empresa: { comp: <Empresa />, modulo: "cadastro" },
+  notasfiscais: { comp: <NotasFiscais />, modulo: "vendas" },
+  fiscalconfig: { comp: <FiscalConfig />, modulo: "cadastro" },
 };
 
 function Relogio() {
