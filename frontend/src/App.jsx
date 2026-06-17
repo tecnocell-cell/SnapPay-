@@ -33,13 +33,13 @@ const PAGINAS = {
   clientes: { comp: <Clientes />, modulo: "cadastro" },
   relatorios: { comp: <Relatorios />, modulo: "relatorios" },
   modulos: { comp: <Modulos />, modulo: "cadastro" },
-  fornecedores: { comp: <Fornecedores />, modulo: "compras" },
-  compras: { comp: <Compras />, modulo: "compras" },
+  fornecedores: { comp: <Fornecedores />, modulo: "produtos" },
+  compras: { comp: <Compras />, modulo: "estoque" },
   financeiro: { comp: <Financeiro />, modulo: "financeiro" },
   configuracoes: { comp: <Configuracoes />, modulo: "cadastro" },
   auditoria: { comp: <Auditoria />, modulo: "cadastro" },
   kardex: { comp: <Kardex />, modulo: "estoque" },
-  dashboard: { comp: <Dashboard />, modulo: "cadastro" },
+  dashboard: { comp: <Dashboard />, modulo: "relatorios" },
   empresa: { comp: <Empresa />, modulo: "cadastro" },
 };
 

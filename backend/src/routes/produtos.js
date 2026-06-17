@@ -1,5 +1,6 @@
 import express from "express";
-import { query, empresaId } from "../db.js";
+import { query } from "../db.js";
+import { empresaId } from "../auth.js";
 
 const router = express.Router();
 
@@ -30,7 +31,7 @@ router.get("/", async (req, res) => {
     sql += " ORDER BY nome";
     const prods = await query(sql, params);
 
-    res.json(prods);
+    res.json(prods.rows);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -40,8 +41,8 @@ router.get("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const prod = await query("SELECT * FROM produtos WHERE id = $1 AND empresa_id = $2", [req.params.id, empresaId(req)]);
-    if (!prod.length) return res.status(404).json({ error: "Produto não encontrado" });
-    res.json(prod[0]);
+    if (!prod.rows.length) return res.status(404).json({ error: "Produto não encontrado" });
+    res.json(prod.rows[0]);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -64,7 +65,7 @@ router.post("/", async (req, res) => {
 
     // Verificar unicidade de código e SKU por empresa
     const existing = await query("SELECT id FROM produtos WHERE (codigo = $1 OR sku = $2) AND empresa_id = $3", [codigo, sku, eid]);
-    if (existing.length) {
+    if (existing.rows.length) {
       return res.status(400).json({ error: "Código ou SKU já existente nesta empresa" });
     }
 
@@ -89,7 +90,7 @@ router.post("/", async (req, res) => {
         ncm, cest, cfop, origem, unidade_tributavel]
     );
 
-    res.json(result[0]);
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -108,15 +109,15 @@ router.put("/:id", async (req, res) => {
     } = req.body;
 
     const prod = await query("SELECT * FROM produtos WHERE id = $1 AND empresa_id = $2", [req.params.id, eid]);
-    if (!prod.length) return res.status(404).json({ error: "Produto não encontrado" });
+    if (!prod.rows.length) return res.status(404).json({ error: "Produto não encontrado" });
 
     // Calcular margem se preço foi alterado
     let margem_pct = margem_lucro_pct;
-    let margem_valor = (preco_venda || prod[0].preco_venda) - (preco_custo || prod[0].preco_custo);
+    let margem_valor = (preco_venda || prod.rows[0].preco_venda) - (preco_custo || prod.rows[0].preco_custo);
 
     if (preco_custo || preco_venda) {
-      const custo = preco_custo !== undefined ? preco_custo : prod[0].preco_custo;
-      const venda = preco_venda !== undefined ? preco_venda : prod[0].preco_venda;
+      const custo = preco_custo !== undefined ? preco_custo : prod.rows[0].preco_custo;
+      const venda = preco_venda !== undefined ? preco_venda : prod.rows[0].preco_venda;
       if (custo > 0) {
         margem_pct = ((venda - custo) / custo * 100).toFixed(2);
       }
@@ -163,7 +164,7 @@ router.put("/:id", async (req, res) => {
         ativo, req.params.id, eid]
     );
 
-    res.json(result[0]);
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -206,7 +207,7 @@ router.get("/kardex/:id", async (req, res) => {
 
     sql += " ORDER BY em.criado_em DESC LIMIT 1000";
     const movimentacoes = await query(sql, params);
-    res.json(movimentacoes);
+    res.json(movimentacoes.rows);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

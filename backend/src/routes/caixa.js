@@ -130,7 +130,7 @@ router.post("/fechar-com-conferencia", requireAuth, requirePermissao("caixa.oper
       saldoEsperado,
       saldoContado,
       diferenca,
-      porForma: formas.map(f => ({
+      porForma: formas.rows.map(f => ({
         forma: f.forma_pagamento || "DINHEIRO",
         valor: Number(f.total)
       }))
@@ -149,7 +149,7 @@ router.get("/:id/resumo", requireAuth, async (req, res) => {
       "SELECT * FROM caixas WHERE id = $1 AND empresa_id = $2",
       [req.params.id, eid]
     );
-    if (caixa.length === 0) return res.status(404).json({ error: "Caixa não encontrado" });
+    if (caixa.rowCount === 0) return res.status(404).json({ error: "Caixa não encontrado" });
 
     // Resumo por forma de pagamento
     const formas = await query(
@@ -170,13 +170,13 @@ router.get("/:id/resumo", requireAuth, async (req, res) => {
     );
 
     res.json({
-      caixa: caixa[0],
-      porForma: formas.map(f => ({
+      caixa: caixa.rows[0],
+      porForma: formas.rows.map(f => ({
         forma: f.forma_pagamento || "DINHEIRO",
         quantidade: Number(f.qtd),
         total: Number(f.total)
       })),
-      porTipo: movimentacoes.map(m => ({
+      porTipo: movimentacoes.rows.map(m => ({
         tipo: m.tipo,
         quantidade: Number(m.qtd),
         total: Number(m.total)

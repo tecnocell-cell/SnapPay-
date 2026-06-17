@@ -1,5 +1,6 @@
 import express from "express";
-import { query, pool, empresaId } from "../db.js";
+import { query, pool } from "../db.js";
+import { empresaId } from "../auth.js";
 
 const router = express.Router();
 
@@ -7,7 +8,7 @@ router.get("/", async (req, res) => {
   try {
     const eid = empresaId(req);
     const invs = await query("SELECT * FROM inventarios WHERE empresa_id = $1 ORDER BY data_inicio DESC", [eid]);
-    res.json(invs);
+    res.json(invs.rows);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -22,21 +23,21 @@ router.post("/", async (req, res) => {
        VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
       [eid, nome, observacao, req.usuario?.id]
     );
-    res.json(result[0]);
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 router.post("/:id/fechar", async (req, res) => {
+  const client = await pool.connect();
   try {
-    const client = await pool.connect();
     const eid = empresaId(req);
 
     await client.query("BEGIN");
 
     const inv = await client.query("SELECT * FROM inventarios WHERE id = $1 AND empresa_id = $2", [req.params.id, eid]);
-    if (!inv.rowCount) throw { msg: "Inventário não encontrado" };
+    if (!inv.rowCount) throw new Error("Inventário não encontrado");
 
     const itens = await client.query("SELECT * FROM inventario_itens WHERE inventario_id = $1", [req.params.id]);
 
@@ -61,7 +62,7 @@ router.post("/:id/fechar", async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     await client.query("ROLLBACK");
-    res.status(400).json({ error: err.message || err.msg });
+    res.status(400).json({ error: err.message });
   } finally {
     client.release();
   }

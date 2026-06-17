@@ -1,5 +1,6 @@
 import express from "express";
-import { query, empresaId } from "../db.js";
+import { query } from "../db.js";
+import { empresaId } from "../auth.js";
 
 const router = express.Router();
 
@@ -8,7 +9,7 @@ router.get("/", async (req, res) => {
   try {
     const eid = empresaId(req);
     const marcas = await query("SELECT * FROM marcas WHERE empresa_id = $1 AND ativo = TRUE ORDER BY nome", [eid]);
-    res.json(marcas);
+    res.json(marcas.rows);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -23,14 +24,14 @@ router.post("/", async (req, res) => {
     if (!nome) return res.status(400).json({ error: "Nome é obrigatório" });
 
     const existing = await query("SELECT id FROM marcas WHERE nome = $1 AND empresa_id = $2", [nome, eid]);
-    if (existing.length) return res.status(400).json({ error: "Marca já existe" });
+    if (existing.rows.length) return res.status(400).json({ error: "Marca já existe" });
 
     const result = await query(
       "INSERT INTO marcas (empresa_id, nome, descricao, ativo, criado_em) VALUES ($1, $2, $3, TRUE, NOW()) RETURNING *",
       [eid, nome, descricao]
     );
 
-    res.json(result[0]);
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -47,8 +48,8 @@ router.put("/:id", async (req, res) => {
       [nome, descricao, req.params.id, eid]
     );
 
-    if (!result.length) return res.status(404).json({ error: "Marca não encontrada" });
-    res.json(result[0]);
+    if (!result.rows.length) return res.status(404).json({ error: "Marca não encontrada" });
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

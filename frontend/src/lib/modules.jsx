@@ -5,17 +5,25 @@ const ModulesContext = createContext();
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
-// Registro de módulos disponíveis
+// Registro de módulos disponíveis (label sem emoji — o ícone é renderizado à parte)
 export const REGISTRY = [
-  { id: "pdv", modulo: "pdv", label: "💳 PDV", icon: "💳", perm: null },
-  { id: "produtos", modulo: "produtos", label: "📦 Produtos", icon: "📦", perm: "produtos.ler" },
-  { id: "categorias", modulo: "produtos", label: "🏷️  Categorias", icon: "🏷️ ", perm: "produtos.ler" },
-  { id: "estoque", modulo: "estoque", label: "📊 Estoque", icon: "📊", perm: "estoque.ler" },
-  { id: "caixa", modulo: "caixa", label: "💰 Caixa", icon: "💰", perm: "caixa.ler" },
-  { id: "vendas", modulo: "vendas", label: "📈 Vendas", icon: "📈", perm: "vendas.ler" },
-  { id: "clientes", modulo: "cadastro", label: "👥 Clientes", icon: "👥", perm: "clientes.ler" },
-  { id: "relatorios", modulo: "relatorios", label: "📉 Relatórios", icon: "📉", perm: "relatorios.ler" },
-  { id: "modulos", modulo: "cadastro", label: "🧩 Módulos", icon: "🧩", perm: "modulos.gerir" },
+  { id: "dashboard", modulo: "relatorios", label: "Dashboard", icon: "📊", perm: "relatorios.ver" },
+  { id: "pdv", modulo: "pdv", label: "PDV", icon: "💳", perm: null },
+  { id: "produtos", modulo: "produtos", label: "Produtos", icon: "📦", perm: "produtos.ver" },
+  { id: "categorias", modulo: "produtos", label: "Categorias", icon: "🏷️", perm: "produtos.ver" },
+  { id: "estoque", modulo: "estoque", label: "Estoque", icon: "📦", perm: "estoque.editar" },
+  { id: "kardex", modulo: "estoque", label: "Kardex", icon: "📑", perm: "estoque.editar" },
+  { id: "caixa", modulo: "caixa", label: "Caixa", icon: "💰", perm: "caixa.operar" },
+  { id: "vendas", modulo: "vendas", label: "Vendas", icon: "📈", perm: "vendas.criar" },
+  { id: "clientes", modulo: "cadastro", label: "Clientes", icon: "👥", perm: null },
+  { id: "fornecedores", modulo: "produtos", label: "Fornecedores", icon: "🏭", perm: "produtos.ver" },
+  { id: "compras", modulo: "estoque", label: "Compras", icon: "🛒", perm: "estoque.editar" },
+  { id: "financeiro", modulo: "financeiro", label: "Financeiro", icon: "💵", perm: "financeiro.ver" },
+  { id: "relatorios", modulo: "relatorios", label: "Relatórios", icon: "📉", perm: "relatorios.ver" },
+  { id: "empresa", modulo: "cadastro", label: "Empresa", icon: "🏢", perm: "config.editar" },
+  { id: "configuracoes", modulo: "cadastro", label: "Configurações", icon: "⚙️", perm: "config.editar" },
+  { id: "auditoria", modulo: "cadastro", label: "Auditoria", icon: "📋", perm: "usuarios.gerenciar" },
+  { id: "modulos", modulo: "cadastro", label: "Módulos", icon: "🧩", perm: "modulos.gerenciar" },
 ];
 
 export function ModulesProvider({ children }) {
@@ -36,13 +44,13 @@ export function ModulesProvider({ children }) {
   async function carregarModulos() {
     try {
       const res = await fetch(
-        `${API_URL}/api/empresa/${empresa.id}/modulos`,
+        `${API_URL}/api/modulos`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!res.ok) throw new Error("Falha ao carregar módulos");
       const lista = await res.json();
       const map = {};
-      lista.forEach((m) => (map[m.modulo] = m.ativo));
+      lista.forEach((m) => (map[m.chave] = m.ativo));
       setModulos(map);
     } catch (err) {
       console.error("Erro ao carregar módulos:", err);

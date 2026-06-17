@@ -39,7 +39,7 @@ router.get("/:id", requireAuth, async (req, res) => {
       `SELECT * FROM compras WHERE id = $1 AND empresa_id = $2`,
       [req.params.id, eid]
     );
-    if (compra.length === 0) return res.status(404).json({ error: "Compra não encontrada" });
+    if (compra.rowCount === 0) return res.status(404).json({ error: "Compra não encontrada" });
 
     const itens = await query(
       `SELECT ci.id, ci.produto_id, p.nome, p.codigo, ci.quantidade, ci.preco_unitario, ci.valor_total
@@ -49,7 +49,7 @@ router.get("/:id", requireAuth, async (req, res) => {
       [req.params.id]
     );
 
-    res.json({ compra: compra[0], itens });
+    res.json({ compra: compra.rows[0], itens: itens.rows });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -137,8 +137,8 @@ router.put("/:id", requireAuth, async (req, res) => {
       [data_vencimento, condicao_pagamento, frete, desconto, acrescimo, observacoes, req.params.id, eid]
     );
 
-    if (result.length === 0) return res.status(404).json({ error: "Compra não encontrada" });
-    res.json(result[0]);
+    if (result.rowCount === 0) return res.status(404).json({ error: "Compra não encontrada" });
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -208,11 +208,10 @@ router.put("/:id/receber", requireAuth, async (req, res) => {
         new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       await client.query(
-        `INSERT INTO contas (
-          empresa_id, tipo, valor, data_vencimento, status,
-          fornecedor_id, origem, origem_id, criado_em
-        ) VALUES ($1, 'PAGAR', $2, $3, 'PENDENTE', $4, 'COMPRA', $5, NOW())`,
-        [eid, compraData.valor_total, dataVencimento, compraData.fornecedor_id, req.params.id]
+        `INSERT INTO contas_pagar (
+          empresa_id, fornecedor_id, compra_id, valor, data_vencimento, status, origem, criado_em
+        ) VALUES ($1, $2, $3, $4, $5, 'PENDENTE', 'COMPRA', NOW())`,
+        [eid, compraData.fornecedor_id, req.params.id, compraData.valor_total, dataVencimento]
       );
 
       await client.query("COMMIT");
@@ -241,8 +240,8 @@ router.delete("/:id", requireAuth, async (req, res) => {
       `SELECT status FROM compras WHERE id = $1 AND empresa_id = $2`,
       [req.params.id, eid]
     );
-    if (compra.length === 0) return res.status(404).json({ error: "Compra não encontrada" });
-    if (compra[0].status === "RECEBIDA") {
+    if (compra.rowCount === 0) return res.status(404).json({ error: "Compra não encontrada" });
+    if (compra.rows[0].status === "RECEBIDA") {
       return res.status(400).json({ error: "Não é possível cancelar compra já recebida" });
     }
 
