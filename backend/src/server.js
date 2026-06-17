@@ -211,6 +211,78 @@ app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async 
   }
 });
 
+// DEVOLUÇÃO (total ou parcial) — body: { itens:[{produto_id, quantidade}], motivo }
+app.post("/api/vendas/:id/devolver", requirePermissao("vendas.cancelar"), async (req, res) => {
+  const eid = empresaId(req);
+  const { itens, motivo } = req.body;
+  if (!Array.isArray(itens) || itens.length === 0) return res.status(400).json({ error: "Informe os itens a devolver" });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const venda = await client.query("SELECT status FROM vendas WHERE id=$1 AND empresa_id=$2", [req.params.id, eid]);
+    if (venda.rowCount === 0) throw { status: 404, msg: "Venda não encontrada" };
+    if (venda.rows[0].status !== "FINALIZADA") throw { status: 400, msg: "Só é possível devolver itens de venda FINALIZADA" };
+
+    // cria cabeçalho da devolução
+    const devQ = await client.query(
+      "INSERT INTO devolucoes (empresa_id, venda_id, usuario_id, motivo) VALUES ($1,$2,$3,$4) RETURNING id",
+      [eid, req.params.id, req.usuario.id, motivo || null]
+    );
+    const devId = devQ.rows[0].id;
+    let valorTotal = 0;
+
+    for (const it of itens) {
+      // item vendido
+      const vi = await client.query(
+        "SELECT quantidade, preco_unitario FROM venda_itens WHERE venda_id=$1 AND produto_id=$2",
+        [req.params.id, it.produto_id]
+      );
+      if (vi.rowCount === 0) throw { status: 400, msg: `Produto ${it.produto_id} não está na venda` };
+      const vendido = Number(vi.rows[0].quantidade);
+      const precoUnit = Number(vi.rows[0].preco_unitario);
+      // já devolvido deste item
+      const jaDev = await client.query(
+        `SELECT COALESCE(SUM(di.quantidade),0) AS q FROM devolucao_itens di
+         JOIN devolucoes d ON d.id = di.devolucao_id
+         WHERE d.venda_id=$1 AND di.produto_id=$2`,
+        [req.params.id, it.produto_id]
+      );
+      const restante = vendido - Number(jaDev.rows[0].q);
+      const qDev = Number(it.quantidade);
+      if (qDev <= 0) throw { status: 400, msg: "Quantidade inválida" };
+      if (qDev > restante) throw { status: 400, msg: `Devolução excede o disponível do produto ${it.produto_id} (resta ${restante})` };
+
+      const valorItem = +(qDev * precoUnit).toFixed(2);
+      valorTotal += valorItem;
+      await client.query(
+        "INSERT INTO devolucao_itens (devolucao_id, produto_id, quantidade, valor_unitario, valor_total) VALUES ($1,$2,$3,$4,$5)",
+        [devId, it.produto_id, qDev, precoUnit, valorItem]
+      );
+      // retorna estoque + kardex DEVOLUCAO
+      const antes = await client.query("SELECT estoque_atual FROM produtos WHERE id=$1", [it.produto_id]);
+      const saldoAntes = Number(antes.rows[0].estoque_atual);
+      await client.query("UPDATE produtos SET estoque_atual = estoque_atual + $1 WHERE id=$2", [qDev, it.produto_id]);
+      await client.query(
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id)
+         VALUES ($1,'DEVOLUCAO',$2,$3,$4,$5,$6,$7,'DEVOLUCAO',$8)`,
+        [it.produto_id, qDev, `Devolução venda #${req.params.id}`, eid, req.usuario.id, saldoAntes, saldoAntes + qDev, devId]
+      );
+    }
+
+    await client.query("UPDATE devolucoes SET valor_total=$1 WHERE id=$2", [valorTotal, devId]);
+    await client.query("COMMIT");
+    await registrarAuditoria(req.usuario.id, eid, "DEVOLUCAO", "devolucoes", devId, `Devolução da venda #${req.params.id} (R$ ${valorTotal.toFixed(2)})`, null, { itens, motivo });
+    res.status(201).json({ id: devId, venda_id: Number(req.params.id), valor_total: valorTotal });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    if (err.status) return res.status(err.status).json({ error: err.msg });
+    console.error(err);
+    res.status(500).json({ error: "Erro ao processar devolução" });
+  } finally {
+    client.release();
+  }
+});
+
 // ----------------------------------------------------------------------------
 // CLIENTES (Sprint 2D)
 // ----------------------------------------------------------------------------
