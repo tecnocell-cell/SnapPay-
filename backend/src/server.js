@@ -7,6 +7,8 @@ import authRoutes from "./routes/auth.js";
 import modulosRoutes from "./routes/modulos.js";
 import categoriasRoutes from "./routes/categorias.js";
 import caixaRoutes from "./routes/caixa.js";
+import produtosRoutes from "./routes/produtos.js";
+import marcasRoutes from "./routes/marcas.js";
 import fornecedoresRoutes from "./routes/fornecedores.js";
 import comprasRoutes from "./routes/compras.js";
 import financeiroRoutes from "./routes/financeiro.js";
@@ -37,62 +39,9 @@ app.use("/api/financeiro", financeiroRoutes);
 app.use("/api/configuracoes", configuracoes);
 app.use("/api/auditoria", auditoriaRoutes);
 
-// ----------------------------------------------------------------------------
-// PRODUTOS (escopo por empresa do usuário autenticado)
-// ----------------------------------------------------------------------------
-app.get("/api/produtos", requireAuth, async (req, res) => {
-  const { q, categoria } = req.query;
-  const params = [empresaId(req)];
-  let sql =
-    `SELECT id, codigo, barras, nome, unidade, preco_venda, estoque_atual, estoque_minimo, categoria_id
-     FROM produtos WHERE ativo = TRUE AND empresa_id = $1`;
-  if (q) {
-    params.push(`%${q}%`, q);
-    sql += ` AND (nome ILIKE $${params.length - 1} OR barras = $${params.length} OR codigo = $${params.length})`;
-  }
-  if (categoria) {
-    params.push(categoria);
-    sql += ` AND categoria_id = $${params.length}`;
-  }
-  sql += " ORDER BY nome";
-  const result = await query(sql, params);
-  res.json(result.rows);
-});
-
-app.post("/api/produtos", async (req, res) => {
-  const eid = empresaId(req);
-  const { codigo, barras, nome, unidade, preco_custo, preco_venda, estoque_atual, estoque_minimo, categoria_id } = req.body;
-  if (!codigo || !nome) return res.status(400).json({ error: "Código e nome são obrigatórios" });
-  try {
-    const result = await query(
-      `INSERT INTO produtos (codigo, barras, nome, unidade, preco_custo, preco_venda, estoque_atual, estoque_minimo, categoria_id, empresa_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [codigo, barras || null, nome, unidade || "UN", preco_custo || 0, preco_venda || 0, estoque_atual || 0, estoque_minimo || 0, categoria_id || null, eid]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    if (err.code === "23505") return res.status(409).json({ error: "Código já cadastrado" });
-    console.error(err);
-    res.status(500).json({ error: "Erro ao salvar produto" });
-  }
-});
-
-app.put("/api/produtos/:id", async (req, res) => {
-  const eid = empresaId(req);
-  const { barras, nome, unidade, preco_custo, preco_venda, estoque_minimo, categoria_id } = req.body;
-  const result = await query(
-    `UPDATE produtos SET barras = $1, nome = $2, unidade = $3, preco_custo = $4, preco_venda = $5, estoque_minimo = $6, categoria_id = $7
-     WHERE id = $8 AND empresa_id = $9 RETURNING *`,
-    [barras || null, nome, unidade || "UN", preco_custo || 0, preco_venda || 0, estoque_minimo || 0, categoria_id || null, req.params.id, eid]
-  );
-  if (result.rowCount === 0) return res.status(404).json({ error: "Produto não encontrado" });
-  res.json(result.rows[0]);
-});
-
-app.delete("/api/produtos/:id", async (req, res) => {
-  await query("UPDATE produtos SET ativo = FALSE WHERE id = $1 AND empresa_id = $2", [req.params.id, empresaId(req)]);
-  res.json({ ok: true });
-});
+// Fase 3 — Produtos profissionais
+app.use("/api/produtos", produtosRoutes);
+app.use("/api/marcas", marcasRoutes);
 
 // ----------------------------------------------------------------------------
 // VENDAS
