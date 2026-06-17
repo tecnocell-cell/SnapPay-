@@ -180,8 +180,130 @@ kbd {
 .caixa-saldo { display: block; font-size: 28px; font-weight: 800; color: #16a34a; }
 .caixa-status small { color: #94a3b8; font-size: 12px; }
 
+/* ---------- HEADER PDV ---------- */
+.pdv2-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.pdv2-status {
+  display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
+  padding: 6px 12px; border-radius: 8px;
+}
+.status-ok { background: #f0fdf4; color: #16a34a; }
+.status-erro { background: #fef2f2; color: #991b1b; cursor: pointer; }
+
+/* ---------- MODAIS ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex;
+  align-items: center; justify-content: center; z-index: 300; backdrop-filter: blur(1px);
+}
+
+.modal {
+  background: #fff; border-radius: 14px; padding: 24px; width: 90%; max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 16px;
+}
+
+.modal h3 { margin: 0; font-size: 18px; color: #1e293b; }
+.modal-input { width: 100%; padding: 11px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+.modal-input:focus { border-color: #6366f1; outline: none; }
+
+.modal-list {
+  max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+}
+.modal-item {
+  text-align: left; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px;
+  cursor: pointer; background: #fff; color: #475569; font-size: 14px; transition: all .15s;
+}
+.modal-item:hover { border-color: #6366f1; background: #f8f9ff; }
+.modal-item.ativo { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
+.mi-nome { display: block; font-weight: 600; }
+.mi-doc { display: block; font-size: 12px; opacity: 0.7; margin-top: 2px; }
+
+.modal-form { display: flex; flex-direction: column; gap: 12px; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group label { font-size: 13px; font-weight: 600; color: #334155; }
+.form-group input, .form-group select { padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+.form-group input:focus, .form-group select:focus { border-color: #6366f1; outline: none; }
+
+.radio-group { display: flex; gap: 12px; }
+.radio-group label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal; }
+.radio-group input { cursor: pointer; }
+
+.form-info { font-size: 13px; background: #eef2ff; color: #4338ca; padding: 8px 10px; border-radius: 6px; }
+
+.modal-footer { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-footer button { padding: 10px 16px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+
+/* Desconto Modal */
+.modal-desconto { max-width: 350px; }
+
+/* Pagamento Modal */
+.modal-pagamento { max-width: 420px; }
+.pag-resumo { background: #f8fafc; padding: 12px; border-radius: 8px; }
+.pag-linha { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+.pag-linha strong { font-weight: 700; }
+.forma-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.forma-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px;
+  border: 2px solid #e2e8f0; background: #fff; border-radius: 8px; cursor: pointer;
+  transition: all .15s;
+}
+.forma-btn:hover { border-color: #6366f1; }
+.forma-btn.ativo { border-color: #6366f1; background: #f8f9ff; }
+.forma-btn small { font-size: 10px; color: #64748b; }
+.pag-lista { background: #f8fafc; padding: 12px; border-radius: 8px; max-height: 200px; overflow-y: auto; }
+.pag-lista h4 { margin: 0 0 8px; font-size: 13px; }
+.pag-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
+.pag-item button { padding: 0; width: 20px; height: 20px; }
+
+/* Caixa Modal */
+.modal-caixa { max-width: 350px; }
+.caixa-info { padding: 16px; background: #f8fafc; border-radius: 8px; }
+.caixa-info.aberto { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.ci-status { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 12px; }
+.ci-saldo { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+.ci-saldo strong { color: #16a34a; font-size: 18px; }
+.caixa-acoes { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+
+/* Comprovante Modal */
+.modal-comprovante { max-width: 400px; max-height: 80vh; overflow-y: auto; }
+.comprovante-header { text-align: center; padding-bottom: 12px; border-bottom: 2px dashed #e2e8f0; }
+.comprovante-header h2 { margin: 0; font-size: 24px; }
+.comprovante-header p { margin: 2px 0 0; color: #64748b; font-size: 13px; }
+.comprovante-venda { background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+.cv-linha { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+.comprovante-itens { width: 100%; font-size: 12px; border-collapse: collapse; margin-bottom: 12px; }
+.comprovante-itens th { text-align: left; padding: 6px 0; border-bottom: 1px solid #e2e8f0; font-weight: 600; }
+.comprovante-itens td { padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+.comprovante-totais { background: #f8fafc; padding: 12px; border-radius: 8px; }
+.ct-linha { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+.ct-linha.total { font-size: 16px; font-weight: 700; color: #16a34a; padding-top: 6px; border-top: 1px solid #e2e8f0; }
+.ct-linha.desconto { color: #991b1b; }
+.comprovante-pagamentos { margin: 12px 0; }
+.comprovante-pagamentos h4 { margin: 0 0 6px; font-size: 13px; color: #64748b; }
+.cp-linha { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+.cp-linha.troco { padding-top: 6px; border-top: 1px solid #e2e8f0; }
+.comprovante-footer { text-align: center; padding-top: 12px; border-top: 2px dashed #e2e8f0; }
+.comprovante-footer p { margin: 4px 0; font-size: 13px; }
+
+/* Carrinho melhorado */
+.cart-item { cursor: pointer; transition: all .15s; }
+.cart-item:hover { background: #f8f9ff; border-bottom-color: #cbd5e1; }
+.cart-item.selecionado { background: #eef2ff; }
+
+.cliente-badge { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.cliente-badge:hover { border-color: #6366f1; background: #f8f9ff; }
+
+.cart-resumo { padding: 12px 16px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+.cart-acoes { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+
+.cart-footer { padding: 8px 16px; background: #f8fafc; font-size: 11px; color: #94a3b8; line-height: 1.4; }
+
+.lista-item.baixo-estoque, .prod-card.baixo-estoque { opacity: 0.8; border-color: #fbbf24; }
+
+.alerta-card { background: #fee2e2; border: 1px solid #f87171; color: #991b1b; padding: 10px; border-radius: 8px; font-size: 13px; }
+.alerta-card.ok { background: #f0fdf4; border-color: #86efac; color: #16a34a; }
+
 /* ---------- responsivo ---------- */
 @media (max-width: 1024px) {
   .pdv2-grid { grid-template-columns: 1fr; }
   .pdv2-kpis { grid-template-columns: repeat(2, 1fr); }
+  .modal { width: 95%; }
 }
