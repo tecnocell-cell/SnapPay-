@@ -14,8 +14,11 @@ router.get("/", requirePermissao("produtos.ver"), async (req, res) => {
     let params = [eid];
 
     if (q) {
-      sql += ` AND (nome ILIKE $${params.length + 1} OR codigo = $${params.length + 1} OR barras = $${params.length + 1} OR sku = $${params.length + 1})`;
-      params.push(`%${q}%`);
+      // Busca: nome por trecho (ILIKE) e código/barras/SKU por igualdade exata
+      // (o operador bipa o código de barras — precisa casar exato).
+      params.push(`%${q}%`); const pLike = params.length;
+      params.push(q);        const pExato = params.length;
+      sql += ` AND (nome ILIKE $${pLike} OR codigo = $${pExato} OR barras = $${pExato} OR sku = $${pExato})`;
     }
     if (categoria) {
       sql += ` AND categoria_id = $${params.length + 1}`;
@@ -56,8 +59,10 @@ router.post("/", requirePermissao("produtos.editar"), async (req, res) => {
     const {
       codigo, sku, barras, nome, descricao, unidade, marca_id, categoria_id, subcategoria,
       fornecedor_id, preco_custo, preco_venda, margem_lucro_pct, estoque_minimo, estoque_maximo,
-      controla_estoque, permite_estoque_negativo, localizacao, ncm, cest, cfop, origem, unidade_tributavel
+      controla_estoque, permite_estoque_negativo, localizacao, ncm, cest, cfop, origem, unidade_tributavel,
+      estoque_inicial,
     } = req.body;
+    const estIni = Number(estoque_inicial) || 0;
 
     // Validações obrigatórias
     if (!codigo || !nome) {
@@ -80,18 +85,26 @@ router.post("/", requirePermissao("produtos.editar"), async (req, res) => {
       `INSERT INTO produtos (
         empresa_id, codigo, sku, barras, nome, descricao, unidade, marca_id, categoria_id, subcategoria,
         fornecedor_id, preco_custo, preco_venda, margem_lucro_pct, margem_lucro_valor,
-        estoque_minimo, estoque_maximo, controla_estoque, permite_estoque_negativo, localizacao,
+        estoque_atual, estoque_minimo, estoque_maximo, controla_estoque, permite_estoque_negativo, localizacao,
         ncm, cest, cfop, origem, unidade_tributavel, ativo, criado_em, atualizado_em
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, TRUE, NOW(), NOW()
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, TRUE, NOW(), NOW()
       ) RETURNING *`,
       [eid, codigo, sku, barras, nome, descricao, unidade || "UN", marca_id, categoria_id, subcategoria,
         fornecedor_id, preco_custo || 0, preco_venda || 0, margem_pct, (preco_venda - preco_custo) || 0,
-        estoque_minimo || 0, estoque_maximo || 999999, controla_estoque !== false, permite_estoque_negativo === true, localizacao,
+        estIni, estoque_minimo || 0, estoque_maximo || 999999, controla_estoque !== false, permite_estoque_negativo === true, localizacao,
         ncm, cest, cfop, origem, unidade_tributavel]
     );
 
     const novo = result.rows[0];
+    // Rastro do estoque inicial no kardex
+    if (estIni > 0) {
+      await query(
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem)
+         VALUES ($1, 'AJUSTE_ENTRADA', $2, 'Estoque inicial (cadastro)', $3, $4, 0, $2, 'CADASTRO')`,
+        [novo.id, estIni, eid, req.usuario.id]
+      );
+    }
     await registrarAuditoria(req.usuario.id, eid, "CREATE", "produtos", novo.id, `Criou produto ${novo.codigo}`, null, novo);
     res.json(novo);
   } catch (err) {

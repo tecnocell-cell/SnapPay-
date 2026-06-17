@@ -6,6 +6,7 @@ const VAZIO = {
   categoria_id: "", marca_id: "", subcategoria: "",
   unidade: "UN", fornecedor_id: "",
   preco_custo: 0, preco_venda: 0, margem_lucro_pct: 0,
+  estoque_inicial: 0,
   estoque_minimo: 0, estoque_maximo: 999999,
   controla_estoque: true, permite_estoque_negativo: false,
   localizacao: "",
@@ -199,6 +200,14 @@ export default function Produtos() {
               <div style={{ gridColumn: "1 / -1" }}>
                 <strong>📦 Controle de Estoque</strong>
               </div>
+
+              {!editando && (
+                <div>
+                  <label>Estoque inicial</label>
+                  <input type="number" value={form.estoque_inicial} onChange={(e) => setForm({ ...form, estoque_inicial: parseFloat(e.target.value) || 0 })} />
+                  <small>Quantidade já em estoque ao cadastrar (gera entrada no kardex).</small>
+                </div>
+              )}
 
               <div>
                 <label>Estoque mínimo</label>
