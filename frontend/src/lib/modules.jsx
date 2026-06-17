@@ -13,6 +13,7 @@ export const REGISTRY = [
   { id: "categorias", modulo: "produtos", label: "Categorias", icon: "🏷️", perm: "produtos.ver" },
   { id: "estoque", modulo: "estoque", label: "Estoque", icon: "📦", perm: "estoque.editar" },
   { id: "kardex", modulo: "estoque", label: "Kardex", icon: "📑", perm: "estoque.editar" },
+  { id: "inventario", modulo: "estoque", label: "Inventário", icon: "📋", perm: "inventario.gerenciar" },
   { id: "caixa", modulo: "caixa", label: "Caixa", icon: "💰", perm: "caixa.operar" },
   { id: "vendas", modulo: "vendas", label: "Vendas", icon: "📈", perm: "vendas.criar" },
   { id: "clientes", modulo: "cadastro", label: "Clientes", icon: "👥", perm: null },

@@ -22,6 +22,7 @@ import Auditoria from "./pages/Auditoria";
 import Kardex from "./pages/Kardex";
 import Dashboard from "./pages/Dashboard";
 import Empresa from "./pages/Empresa";
+import Inventario from "./pages/Inventario";
 
 const PAGINAS = {
   pdv: { comp: <PDV />, modulo: "pdv" },
@@ -39,6 +40,7 @@ const PAGINAS = {
   configuracoes: { comp: <Configuracoes />, modulo: "cadastro" },
   auditoria: { comp: <Auditoria />, modulo: "cadastro" },
   kardex: { comp: <Kardex />, modulo: "estoque" },
+  inventario: { comp: <Inventario />, modulo: "estoque" },
   dashboard: { comp: <Dashboard />, modulo: "relatorios" },
   empresa: { comp: <Empresa />, modulo: "cadastro" },
 };
