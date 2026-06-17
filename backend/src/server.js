@@ -77,28 +77,43 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
   try {
     await client.query("BEGIN");
 
-    // Validação de estoque (impede venda negativa) — bloqueia as linhas dos produtos
+    // Caixa aberto (se houver) para vincular a venda e descobrir a loja/unidade
+    const caixaAberto = await client.query(
+      "SELECT id, unidade_id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO' ORDER BY aberto_em DESC LIMIT 1",
+      [eid]
+    );
+    const caixaId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].id : null;
+    const unidadeId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].unidade_id : null;
+
+    // Validação de estoque (impede venda negativa). Se o caixa tem loja e o
+    // produto é controlado por loja (estoque_unidade), valida o saldo DA LOJA.
     for (const item of itens) {
       const prod = await client.query(
         "SELECT nome, estoque_atual FROM produtos WHERE id = $1 AND empresa_id = $2 FOR UPDATE",
         [item.produtoId, eid]
       );
       if (prod.rowCount === 0) throw { status: 400, msg: "Produto inexistente" };
+      if (unidadeId) {
+        const eu = await client.query(
+          "SELECT quantidade FROM estoque_unidade WHERE unidade_id=$1 AND produto_id=$2 FOR UPDATE",
+          [unidadeId, item.produtoId]
+        );
+        if (eu.rowCount > 0) {
+          if (Number(eu.rows[0].quantidade) < Number(item.quantidade)) {
+            throw { status: 409, msg: `Estoque insuficiente na loja para "${prod.rows[0].nome}" (disponível: ${Number(eu.rows[0].quantidade)})` };
+          }
+          continue; // saldo da loja ok
+        }
+      }
+      // sem controle por loja → valida o consolidado
       if (Number(prod.rows[0].estoque_atual) < Number(item.quantidade)) {
         throw { status: 409, msg: `Estoque insuficiente para "${prod.rows[0].nome}" (disponível: ${Number(prod.rows[0].estoque_atual)})` };
       }
     }
 
-    // Caixa aberto (se houver) para vincular a venda
-    const caixaAberto = await client.query(
-      "SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO' ORDER BY aberto_em DESC LIMIT 1",
-      [eid]
-    );
-    const caixaId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].id : null;
-
     const vendaResult = await client.query(
-      "INSERT INTO vendas (cliente_id, status, empresa_id, caixa_id) VALUES ($1, 'ABERTA', $2, $3) RETURNING id",
-      [clienteId || null, eid, caixaId]
+      "INSERT INTO vendas (cliente_id, status, empresa_id, caixa_id, unidade_id) VALUES ($1, 'ABERTA', $2, $3, $4) RETURNING id",
+      [clienteId || null, eid, caixaId, unidadeId]
     );
     const vendaId = vendaResult.rows[0].id;
 
@@ -113,15 +128,23 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
       );
       const antes = await client.query("SELECT estoque_atual FROM produtos WHERE id = $1", [item.produtoId]);
       const saldoAntes = Number(antes.rows[0].estoque_atual);
+      // baixa o consolidado (produtos.estoque_atual)
       await client.query(
         "UPDATE produtos SET estoque_atual = estoque_atual - $1 WHERE id = $2",
         [item.quantidade, item.produtoId]
       );
+      // baixa o saldo da loja (estoque_unidade), quando controlado por loja
+      if (unidadeId) {
+        await client.query(
+          "UPDATE estoque_unidade SET quantidade = quantidade - $1 WHERE unidade_id=$2 AND produto_id=$3",
+          [item.quantidade, unidadeId, item.produtoId]
+        );
+      }
       const saldoDepois = saldoAntes - Number(item.quantidade);
       await client.query(
-        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id)
-         VALUES ($1, 'SAIDA_VENDA', $2, $3, $4, $5, $6, $7, 'VENDA', $8)`,
-        [item.produtoId, item.quantidade, `Venda #${vendaId}`, eid, req.usuario.id, saldoAntes, saldoDepois, vendaId]
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id, unidade_id)
+         VALUES ($1, 'SAIDA_VENDA', $2, $3, $4, $5, $6, $7, 'VENDA', $8, $9)`,
+        [item.produtoId, item.quantidade, `Venda #${vendaId}`, eid, req.usuario.id, saldoAntes, saldoDepois, vendaId, unidadeId]
       );
     }
 

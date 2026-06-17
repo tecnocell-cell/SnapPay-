@@ -27,7 +27,13 @@ router.get("/atual", requireAuth, async (req, res) => {
     `SELECT ${SQL_SALDO_DINHEIRO} AS saldo FROM caixa_movimentos WHERE caixa_id = $1`,
     [caixa.id]
   );
-  res.json({ aberto: true, caixa, saldo: Number(mov.rows[0].saldo) });
+  // nome da loja vinculada ao caixa (para o PDV exibir)
+  let unidade = null;
+  if (caixa.unidade_id) {
+    const u = await query("SELECT id, nome FROM unidades WHERE id=$1", [caixa.unidade_id]);
+    unidade = u.rows[0] || null;
+  }
+  res.json({ aberto: true, caixa, saldo: Number(mov.rows[0].saldo), unidade });
 });
 
 // POST /api/caixa/abrir
@@ -36,12 +42,18 @@ router.post("/abrir", requireAuth, requirePermissao("caixa.operar"), async (req,
   const aberto = await query("SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO'", [eid]);
   if (aberto.rowCount > 0) return res.status(400).json({ error: "Já existe caixa aberto" });
   const valor = Number(req.body.valorAbertura || 0);
+  // unidade/loja do caixa: informada ou a matriz (menor id) da empresa
+  let unidadeId = req.body.unidadeId ? Number(req.body.unidadeId) : null;
+  if (!unidadeId) {
+    const u = await query("SELECT MIN(id) AS id FROM unidades WHERE empresa_id=$1", [eid]);
+    unidadeId = u.rows[0]?.id || null;
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const c = await client.query(
-      "INSERT INTO caixas (empresa_id, usuario_id, valor_abertura) VALUES ($1,$2,$3) RETURNING *",
-      [eid, req.usuario.id, valor]
+      "INSERT INTO caixas (empresa_id, usuario_id, valor_abertura, unidade_id) VALUES ($1,$2,$3,$4) RETURNING *",
+      [eid, req.usuario.id, valor, unidadeId]
     );
     await client.query(
       "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao) VALUES ($1,'ABERTURA',$2,'Abertura de caixa')",

@@ -28,6 +28,7 @@ export default function PDV() {
   const [desconto, setDesconto] = useState({ tipo: "valor", valor: 0, final: 0 });
   const [pagamentos, setPagamentos] = useState([]);
   const [caixa, setCaixa] = useState(null);
+  const [promo, setPromo] = useState({ desconto_total: 0, itens: [] });
   const [vendaAtual, setVendaAtual] = useState(null);
   const [erro, setErro] = useState("");
   const [modo, setModo] = useState(() => localStorage.getItem("snappay_pdv_modo") || "mercado");
@@ -113,7 +114,47 @@ export default function PDV() {
 
   // ---- Carrinho ----
   const subtotal = carrinho.reduce((a, i) => a + i.quantidade * i.precoUnitario, 0);
-  const total = Math.max(0, subtotal - desconto.final);
+  const descontoPromo = Number(promo.desconto_total || 0);
+  const total = Math.max(0, subtotal - desconto.final - descontoPromo);
+
+  // Assinatura do carrinho (produto+quantidade) p/ recalcular preço/promoções.
+  const cartSig = carrinho.map((i) => `${i.produtoId}:${i.quantidade}`).join("|");
+
+  // Resolve preço por faixa de quantidade (atacado automático) e aplica promoções.
+  useEffect(() => {
+    if (!online || carrinho.length === 0) { setPromo({ desconto_total: 0, itens: [] }); return; }
+    let cancel = false;
+    (async () => {
+      // 1) preço correto por quantidade (tabela do cliente/padrão)
+      const precos = await Promise.all(carrinho.map(async (i) => {
+        try {
+          const cli = clienteId ? `&cliente_id=${clienteId}` : "";
+          const r = await api.get(`/precos/resolver?produto_id=${i.produtoId}&quantidade=${i.quantidade}${cli}`);
+          return { id: i.produtoId, preco: Number(r.preco), faixa: Number(r.faixa_qtd_min) };
+        } catch { return null; }
+      }));
+      if (cancel) return;
+      setCarrinho((prev) => prev.map((i) => {
+        const u = precos.find((x) => x && x.id === i.produtoId);
+        return u ? { ...i, precoUnitario: u.preco, faixa: u.faixa, atacado: u.faixa > 1 } : i;
+      }));
+      // 2) promoções vigentes sobre os preços resolvidos
+      try {
+        const itensReq = carrinho.map((i) => {
+          const u = precos.find((x) => x && x.id === i.produtoId);
+          const prod = produtos.find((p) => p.id === i.produtoId);
+          return { produto_id: i.produtoId, categoria_id: prod?.categoria_id ?? null, quantidade: i.quantidade, preco_unitario: u ? u.preco : i.precoUnitario };
+        });
+        const resp = await api.post("/promocoes/aplicar", { itens: itensReq });
+        if (!cancel) setPromo(resp);
+      } catch { if (!cancel) setPromo({ desconto_total: 0, itens: [] }); }
+    })();
+    return () => { cancel = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartSig, clienteId, online]);
+
+  // nomes das promoções aplicadas (para exibir)
+  const promosAplicadas = [...new Set((promo.itens || []).filter((x) => x.promocao).map((x) => x.promocao.nome))];
 
   function adicionar(p) {
     setErro("");
@@ -221,6 +262,14 @@ export default function PDV() {
     setErro("");
     setModalPagamento(false);
 
+    // desconto por item = parte do desconto manual (proporcional) + promoção do item
+    const descontoDoItem = (i) => {
+      const bruto = i.quantidade * i.precoUnitario;
+      const manualShare = subtotal > 0 ? desconto.final * (bruto / subtotal) : 0;
+      const promoItem = Number((promo.itens || []).find((x) => x.produto_id === i.produtoId)?.desconto || 0);
+      return +(manualShare + promoItem).toFixed(2);
+    };
+
     // OFFLINE: grava a venda localmente (IndexedDB) e segue vendendo.
     if (!online) {
       try {
@@ -230,7 +279,7 @@ export default function PDV() {
             produto_id: i.produtoId,
             quantidade: i.quantidade,
             preco_unitario: i.precoUnitario,
-            desconto: desconto.final / carrinho.length,
+            desconto: descontoDoItem(i),
           })),
           pagamentos: pagsPagamento,
         });
@@ -257,7 +306,7 @@ export default function PDV() {
           produtoId: i.produtoId,
           quantidade: i.quantidade,
           precoUnitario: i.precoUnitario,
-          desconto: desconto.final / carrinho.length, // distribuir desconto
+          desconto: descontoDoItem(i), // manual proporcional + promoção
         })),
         pagamentos: pagsPagamento,
       });
@@ -308,7 +357,7 @@ export default function PDV() {
           >
             <div className="ci-nome">
               {i.nome.substring(0, 20)}
-              <small>R$ {i.precoUnitario.toFixed(2)}</small>
+              <small>R$ {i.precoUnitario.toFixed(2)} {i.atacado && <span className="tag-atacado">atacado</span>}</small>
             </div>
             <input
               className="ci-qtd"
@@ -336,6 +385,12 @@ export default function PDV() {
           <span>Subtotal:</span>
           <span>R$ {subtotal.toFixed(2)}</span>
         </div>
+        {descontoPromo > 0 && (
+          <div className="cart-linha desconto">
+            <span>🎁 {promosAplicadas.length ? promosAplicadas.join(", ").substring(0, 24) : "Promoção"}:</span>
+            <span>-R$ {descontoPromo.toFixed(2)}</span>
+          </div>
+        )}
         {desconto.final > 0 && (
           <div className="cart-linha desconto">
             <span>Desconto:</span>
@@ -415,7 +470,7 @@ export default function PDV() {
 
         <div className="pdv2-status">
           {caixa?.aberto ? (
-            <span className="status-ok">🟢 Caixa aberto | R$ {Number(caixa.saldo).toFixed(2)}</span>
+            <span className="status-ok">🟢 Caixa aberto{caixa.unidade ? ` · 🏬 ${caixa.unidade.nome}` : ""} | R$ {Number(caixa.saldo).toFixed(2)}</span>
           ) : (
             <span
               className="status-erro"
