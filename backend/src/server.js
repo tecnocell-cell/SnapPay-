@@ -2,22 +2,43 @@ import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import { pool, query } from "./db.js";
+import { requireAuth, empresaId } from "./auth.js";
+import authRoutes from "./routes/auth.js";
+import modulosRoutes from "./routes/modulos.js";
+import categoriasRoutes from "./routes/categorias.js";
+import caixaRoutes from "./routes/caixa.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 // ----------------------------------------------------------------------------
-// PRODUTOS
+// FASE 0 — Fundação: auth, módulos, categorias, caixa
 // ----------------------------------------------------------------------------
-app.get("/api/produtos", async (req, res) => {
-  const { q } = req.query;
+app.use("/api/auth", authRoutes);
+app.use("/api/modulos", modulosRoutes);
+app.use("/api/categorias", categoriasRoutes);
+app.use("/api/caixa", caixaRoutes);
+
+// A partir daqui, todo /api exige autenticação (login fica acima, é público)
+app.use("/api", requireAuth);
+
+// ----------------------------------------------------------------------------
+// PRODUTOS (escopo por empresa do usuário autenticado)
+// ----------------------------------------------------------------------------
+app.get("/api/produtos", requireAuth, async (req, res) => {
+  const { q, categoria } = req.query;
+  const params = [empresaId(req)];
   let sql =
-    "SELECT id, codigo, barras, nome, unidade, preco_venda, estoque_atual, estoque_minimo FROM produtos WHERE ativo = TRUE";
-  const params = [];
+    `SELECT id, codigo, barras, nome, unidade, preco_venda, estoque_atual, estoque_minimo, categoria_id
+     FROM produtos WHERE ativo = TRUE AND empresa_id = $1`;
   if (q) {
     params.push(`%${q}%`, q);
-    sql += " AND (nome ILIKE $1 OR barras = $2 OR codigo = $2)";
+    sql += ` AND (nome ILIKE $${params.length - 1} OR barras = $${params.length} OR codigo = $${params.length})`;
+  }
+  if (categoria) {
+    params.push(categoria);
+    sql += ` AND categoria_id = $${params.length}`;
   }
   sql += " ORDER BY nome";
   const result = await query(sql, params);
@@ -25,13 +46,14 @@ app.get("/api/produtos", async (req, res) => {
 });
 
 app.post("/api/produtos", async (req, res) => {
-  const { codigo, barras, nome, unidade, preco_custo, preco_venda, estoque_atual, estoque_minimo } = req.body;
+  const eid = empresaId(req);
+  const { codigo, barras, nome, unidade, preco_custo, preco_venda, estoque_atual, estoque_minimo, categoria_id } = req.body;
   if (!codigo || !nome) return res.status(400).json({ error: "Código e nome são obrigatórios" });
   try {
     const result = await query(
-      `INSERT INTO produtos (codigo, barras, nome, unidade, preco_custo, preco_venda, estoque_atual, estoque_minimo)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [codigo, barras || null, nome, unidade || "UN", preco_custo || 0, preco_venda || 0, estoque_atual || 0, estoque_minimo || 0]
+      `INSERT INTO produtos (codigo, barras, nome, unidade, preco_custo, preco_venda, estoque_atual, estoque_minimo, categoria_id, empresa_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [codigo, barras || null, nome, unidade || "UN", preco_custo || 0, preco_venda || 0, estoque_atual || 0, estoque_minimo || 0, categoria_id || null, eid]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -42,25 +64,27 @@ app.post("/api/produtos", async (req, res) => {
 });
 
 app.put("/api/produtos/:id", async (req, res) => {
-  const { barras, nome, unidade, preco_custo, preco_venda, estoque_minimo } = req.body;
+  const eid = empresaId(req);
+  const { barras, nome, unidade, preco_custo, preco_venda, estoque_minimo, categoria_id } = req.body;
   const result = await query(
-    `UPDATE produtos SET barras = $1, nome = $2, unidade = $3, preco_custo = $4, preco_venda = $5, estoque_minimo = $6
-     WHERE id = $7 RETURNING *`,
-    [barras || null, nome, unidade || "UN", preco_custo || 0, preco_venda || 0, estoque_minimo || 0, req.params.id]
+    `UPDATE produtos SET barras = $1, nome = $2, unidade = $3, preco_custo = $4, preco_venda = $5, estoque_minimo = $6, categoria_id = $7
+     WHERE id = $8 AND empresa_id = $9 RETURNING *`,
+    [barras || null, nome, unidade || "UN", preco_custo || 0, preco_venda || 0, estoque_minimo || 0, categoria_id || null, req.params.id, eid]
   );
   if (result.rowCount === 0) return res.status(404).json({ error: "Produto não encontrado" });
   res.json(result.rows[0]);
 });
 
 app.delete("/api/produtos/:id", async (req, res) => {
-  await query("UPDATE produtos SET ativo = FALSE WHERE id = $1", [req.params.id]);
+  await query("UPDATE produtos SET ativo = FALSE WHERE id = $1 AND empresa_id = $2", [req.params.id, empresaId(req)]);
   res.json({ ok: true });
 });
 
 // ----------------------------------------------------------------------------
 // VENDAS
 // ----------------------------------------------------------------------------
-app.post("/api/vendas", async (req, res) => {
+app.post("/api/vendas", requireAuth, async (req, res) => {
+  const eid = empresaId(req);
   const { clienteId, itens } = req.body;
   if (!itens || itens.length === 0) {
     return res.status(400).json({ error: "Venda sem itens" });
@@ -69,9 +93,28 @@ app.post("/api/vendas", async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    // Validação de estoque (impede venda negativa) — bloqueia as linhas dos produtos
+    for (const item of itens) {
+      const prod = await client.query(
+        "SELECT nome, estoque_atual FROM produtos WHERE id = $1 AND empresa_id = $2 FOR UPDATE",
+        [item.produtoId, eid]
+      );
+      if (prod.rowCount === 0) throw { status: 400, msg: "Produto inexistente" };
+      if (Number(prod.rows[0].estoque_atual) < Number(item.quantidade)) {
+        throw { status: 409, msg: `Estoque insuficiente para "${prod.rows[0].nome}" (disponível: ${Number(prod.rows[0].estoque_atual)})` };
+      }
+    }
+
+    // Caixa aberto (se houver) para vincular a venda
+    const caixaAberto = await client.query(
+      "SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO' ORDER BY aberto_em DESC LIMIT 1",
+      [eid]
+    );
+    const caixaId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].id : null;
+
     const vendaResult = await client.query(
-      "INSERT INTO vendas (cliente_id, status) VALUES ($1, 'ABERTA') RETURNING id",
-      [clienteId || null]
+      "INSERT INTO vendas (cliente_id, status, empresa_id, caixa_id) VALUES ($1, 'ABERTA', $2, $3) RETURNING id",
+      [clienteId || null, eid, caixaId]
     );
     const vendaId = vendaResult.rows[0].id;
 
@@ -84,7 +127,6 @@ app.post("/api/vendas", async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [vendaId, item.produtoId, item.quantidade, item.precoUnitario, item.desconto || 0, valorTotal]
       );
-      // baixa de estoque
       await client.query(
         "UPDATE produtos SET estoque_atual = estoque_atual - $1 WHERE id = $2",
         [item.quantidade, item.produtoId]
@@ -107,10 +149,19 @@ app.post("/api/vendas", async (req, res) => {
       );
     }
 
+    // Registra entrada no caixa (vendas em dinheiro alimentam o saldo)
+    if (caixaId) {
+      await client.query(
+        "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao) VALUES ($1,'VENDA',$2,$3)",
+        [caixaId, total, `Venda #${vendaId}`]
+      );
+    }
+
     await client.query("COMMIT");
-    res.status(201).json({ id: vendaId, total });
+    res.status(201).json({ id: vendaId, total, caixaId });
   } catch (err) {
     await client.query("ROLLBACK");
+    if (err && err.status) return res.status(err.status).json({ error: err.msg });
     console.error(err);
     res.status(500).json({ error: "Erro ao finalizar venda" });
   } finally {

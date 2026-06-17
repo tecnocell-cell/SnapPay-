@@ -1,63 +1,53 @@
 import { useState, useEffect } from "react";
+import { api } from "../lib/api";
 
-const VAZIO = { codigo: "", barras: "", nome: "", unidade: "UN", preco_custo: "", preco_venda: "", estoque_atual: "", estoque_minimo: "" };
+const VAZIO = { codigo: "", barras: "", nome: "", unidade: "UN", preco_custo: "", preco_venda: "", estoque_atual: "", estoque_minimo: "", categoria_id: "" };
 
-export default function Produtos({ apiUrl }) {
+export default function Produtos() {
   const [produtos, setProdutos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
   const [busca, setBusca] = useState("");
   const [form, setForm] = useState(VAZIO);
   const [editando, setEditando] = useState(null);
   const [erro, setErro] = useState("");
 
   async function carregar() {
-    const res = await fetch(`${apiUrl}/produtos?q=${encodeURIComponent(busca)}`);
-    setProdutos(await res.json());
+    const params = busca ? `?q=${encodeURIComponent(busca)}` : "";
+    setProdutos(await api.get(`/produtos${params}`));
   }
-
+  useEffect(() => { api.get("/categorias").then(setCategorias).catch(() => {}); }, []);
   useEffect(() => { carregar(); }, []);
   useEffect(() => { const t = setTimeout(carregar, 300); return () => clearTimeout(t); }, [busca]);
 
   function editar(p) {
     setEditando(p.id);
-    setForm({
-      codigo: p.codigo, barras: p.barras || "", nome: p.nome, unidade: p.unidade || "UN",
+    setForm({ codigo: p.codigo, barras: p.barras || "", nome: p.nome, unidade: p.unidade || "UN",
       preco_custo: "", preco_venda: p.preco_venda, estoque_atual: p.estoque_atual, estoque_minimo: p.estoque_minimo,
-    });
+      categoria_id: p.categoria_id || "" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
-
-  function cancelar() { setEditando(null); setForm(VAZIO); setErro(""); }
+  function limpar() { setEditando(null); setForm(VAZIO); setErro(""); }
 
   async function salvar(e) {
-    e.preventDefault();
-    setErro("");
+    e.preventDefault(); setErro("");
     const payload = {
       ...form,
-      preco_custo: Number(form.preco_custo || 0),
-      preco_venda: Number(form.preco_venda || 0),
-      estoque_atual: Number(form.estoque_atual || 0),
-      estoque_minimo: Number(form.estoque_minimo || 0),
+      preco_custo: Number(form.preco_custo || 0), preco_venda: Number(form.preco_venda || 0),
+      estoque_atual: Number(form.estoque_atual || 0), estoque_minimo: Number(form.estoque_minimo || 0),
+      categoria_id: form.categoria_id ? Number(form.categoria_id) : null,
     };
-    const url = editando ? `${apiUrl}/produtos/${editando}` : `${apiUrl}/produtos`;
-    const res = await fetch(url, {
-      method: editando ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const e = await res.json();
-      setErro(e.error || "Erro ao salvar");
-      return;
-    }
-    cancelar();
-    carregar();
+    try {
+      if (editando) await api.put(`/produtos/${editando}`, payload);
+      else await api.post("/produtos", payload);
+      limpar(); carregar();
+    } catch (err) { setErro(err.message); }
   }
-
   async function excluir(p) {
     if (!confirm(`Inativar "${p.nome}"?`)) return;
-    await fetch(`${apiUrl}/produtos/${p.id}`, { method: "DELETE" });
-    carregar();
+    await api.del(`/produtos/${p.id}`); carregar();
   }
+
+  const catNome = (id) => categorias.find((c) => c.id === id)?.nome || "—";
 
   return (
     <>
@@ -76,42 +66,32 @@ export default function Produtos({ apiUrl }) {
         <form className="form-grid" onSubmit={salvar}>
           <input placeholder="Código *" value={form.codigo} disabled={!!editando}
             onChange={(e) => setForm({ ...form, codigo: e.target.value })} />
-          <input placeholder="Cód. barras" value={form.barras}
-            onChange={(e) => setForm({ ...form, barras: e.target.value })} />
-          <input placeholder="Nome *" value={form.nome}
-            onChange={(e) => setForm({ ...form, nome: e.target.value })} />
-          <input placeholder="Unidade" value={form.unidade}
-            onChange={(e) => setForm({ ...form, unidade: e.target.value })} />
-          <input placeholder="Preço custo" type="number" step="0.01" value={form.preco_custo}
-            onChange={(e) => setForm({ ...form, preco_custo: e.target.value })} />
-          <input placeholder="Preço venda" type="number" step="0.01" value={form.preco_venda}
-            onChange={(e) => setForm({ ...form, preco_venda: e.target.value })} />
-          {!editando && (
-            <input placeholder="Estoque inicial" type="number" value={form.estoque_atual}
-              onChange={(e) => setForm({ ...form, estoque_atual: e.target.value })} />
-          )}
-          <input placeholder="Estoque mínimo" type="number" value={form.estoque_minimo}
-            onChange={(e) => setForm({ ...form, estoque_minimo: e.target.value })} />
+          <input placeholder="Cód. barras" value={form.barras} onChange={(e) => setForm({ ...form, barras: e.target.value })} />
+          <input placeholder="Nome *" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} />
+          <select value={form.categoria_id} onChange={(e) => setForm({ ...form, categoria_id: e.target.value })}>
+            <option value="">Sem categoria</option>
+            {categorias.map((c) => <option key={c.id} value={c.id}>{c.icone} {c.nome}</option>)}
+          </select>
+          <input placeholder="Unidade" value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value })} />
+          <input placeholder="Preço custo" type="number" step="0.01" value={form.preco_custo} onChange={(e) => setForm({ ...form, preco_custo: e.target.value })} />
+          <input placeholder="Preço venda" type="number" step="0.01" value={form.preco_venda} onChange={(e) => setForm({ ...form, preco_venda: e.target.value })} />
+          {!editando && <input placeholder="Estoque inicial" type="number" value={form.estoque_atual} onChange={(e) => setForm({ ...form, estoque_atual: e.target.value })} />}
+          <input placeholder="Estoque mínimo" type="number" value={form.estoque_minimo} onChange={(e) => setForm({ ...form, estoque_minimo: e.target.value })} />
           <button className="btn-checkout" type="submit">{editando ? "Atualizar" : "Salvar"}</button>
-          {editando && <button type="button" className="btn-mini" onClick={cancelar}>Cancelar</button>}
+          {editando && <button type="button" className="btn-mini" onClick={limpar}>Cancelar</button>}
         </form>
       </div>
 
       <div className="card">
         <table className="data-table">
-          <thead>
-            <tr><th>Cód</th><th>Produto</th><th>Un</th><th>Preço</th><th>Estoque</th><th></th></tr>
-          </thead>
+          <thead><tr><th>Cód</th><th>Produto</th><th>Categoria</th><th>Preço</th><th>Estoque</th><th></th></tr></thead>
           <tbody>
             {produtos.length === 0 ? (
               <tr><td colSpan="6" style={{ textAlign: "center", padding: 20, opacity: 0.6 }}>Nenhum produto</td></tr>
             ) : produtos.map((p) => (
               <tr key={p.id}>
-                <td>{p.codigo}</td>
-                <td>{p.nome}</td>
-                <td>{p.unidade}</td>
-                <td>R$ {Number(p.preco_venda).toFixed(2)}</td>
-                <td>{Number(p.estoque_atual)}</td>
+                <td>{p.codigo}</td><td>{p.nome}</td><td>{catNome(p.categoria_id)}</td>
+                <td>R$ {Number(p.preco_venda).toFixed(2)}</td><td>{Number(p.estoque_atual)}</td>
                 <td>
                   <button className="btn-mini" onClick={() => editar(p)}>Editar</button>
                   <button className="btn-mini danger" onClick={() => excluir(p)}>Inativar</button>

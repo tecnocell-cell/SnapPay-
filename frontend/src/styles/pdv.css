@@ -1,0 +1,168 @@
+/* ============ SnapPay — Fase 1: novo PDV + login + caixa ============ */
+
+.splash {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; font-size: 22px; color: #6366f1; font-weight: 700;
+}
+
+/* ---------- LOGIN ---------- */
+.login-page {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+}
+.login-card {
+  background: #fff; border-radius: 16px; padding: 36px; width: 360px;
+  display: flex; flex-direction: column; gap: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.login-brand { text-align: center; margin-bottom: 12px; }
+.login-brand h1 { margin: 0; font-size: 30px; }
+.login-brand p { margin: 4px 0 0; color: #64748b; font-size: 13px; }
+.login-card label { font-size: 13px; color: #334155; font-weight: 600; margin-top: 6px; }
+.login-card input {
+  padding: 11px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;
+}
+.login-card button {
+  margin-top: 14px; padding: 12px; border: none; border-radius: 8px; cursor: pointer;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-weight: 700; font-size: 15px;
+}
+.login-card button:disabled { opacity: 0.6; }
+.login-erro { background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 8px; font-size: 13px; }
+.login-dica { text-align: center; color: #94a3b8; font-size: 12px; margin-top: 8px; }
+
+/* ---------- HEADER extras ---------- */
+.header-info em { opacity: 0.7; font-style: normal; font-size: 11px; }
+.btn-sair {
+  background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 6px;
+  padding: 5px 10px; cursor: pointer; font-size: 12px;
+}
+.btn-sair:hover { background: rgba(255,255,255,0.28); }
+
+/* ---------- GATE ---------- */
+.gate-msg {
+  text-align: center; padding: 60px 20px; color: #64748b;
+}
+.gate-icon { font-size: 42px; }
+
+/* ---------- PDV 2.0 ---------- */
+.pdv2 { display: flex; flex-direction: column; gap: 14px; height: 100%; }
+
+.pdv2-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.pdv2-kpis .kpi {
+  background: #fff; border-radius: 10px; padding: 12px 16px;
+  display: flex; flex-direction: column; box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  border-left: 4px solid #6366f1;
+}
+.pdv2-kpis .kpi span { font-size: 12px; color: #64748b; }
+.pdv2-kpis .kpi strong { font-size: 20px; color: #1e293b; }
+.pdv2-kpis .kpi.ok { border-left-color: #22c55e; }
+.pdv2-kpis .kpi.off { border-left-color: #94a3b8; }
+
+.pdv2-grid { display: grid; grid-template-columns: 1fr 360px; gap: 14px; flex: 1; min-height: 0; }
+
+.pdv2-center { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.pdv2-cats { display: flex; gap: 8px; flex-wrap: wrap; }
+.cat-btn {
+  border: 2px solid #cbd5e1; background: #fff; border-radius: 20px; padding: 6px 14px;
+  cursor: pointer; font-size: 13px; font-weight: 600; color: #334155; transition: all .15s;
+}
+.cat-btn:hover { filter: brightness(0.97); }
+.cat-btn.ativo { background: #6366f1; border-color: #6366f1; color: #fff; }
+
+.pdv2-busca input {
+  width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 10px;
+  font-size: 15px; box-sizing: border-box;
+}
+.pdv2-busca input:focus { border-color: #6366f1; outline: none; }
+
+.pdv2-produtos {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px; overflow-y: auto; align-content: start; padding-right: 4px; flex: 1;
+}
+.prod-card {
+  position: relative; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+  padding: 14px 12px; cursor: pointer; text-align: left; display: flex; flex-direction: column;
+  gap: 4px; transition: all .12s; min-height: 110px;
+}
+.prod-card:hover { border-color: #6366f1; box-shadow: 0 4px 12px rgba(99,102,241,0.18); transform: translateY(-2px); }
+.prod-card.sem-estoque { opacity: 0.5; cursor: not-allowed; }
+.prod-badge {
+  position: absolute; top: 8px; right: 8px; background: #e0e7ff; color: #3730a3;
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px;
+}
+.prod-badge.baixo { background: #fee2e2; color: #991b1b; }
+.prod-nome { font-size: 13px; font-weight: 600; color: #1e293b; margin-top: 18px; line-height: 1.25; }
+.prod-cod { font-size: 11px; color: #94a3b8; }
+.prod-preco { font-size: 17px; font-weight: 800; color: #6366f1; margin-top: auto; }
+
+/* ---------- CARRINHO 2.0 ---------- */
+.pdv2-cart {
+  background: #fff; border-radius: 12px; display: flex; flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden;
+}
+.cart-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 16px; background: #1e293b; color: #fff;
+}
+.cart-head h3 { margin: 0; font-size: 16px; }
+.cart-count { background: #6366f1; border-radius: 12px; padding: 2px 10px; font-size: 13px; font-weight: 700; }
+
+.cart-cliente { padding: 12px 16px 6px; }
+.cart-cliente label { font-size: 12px; color: #64748b; display: block; margin-bottom: 4px; }
+.cart-cliente select, .cart-pgto {
+  width: 100%; padding: 9px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; box-sizing: border-box;
+}
+
+.cart-itens { flex: 1; overflow-y: auto; padding: 6px 12px; min-height: 80px; }
+.cart-vazio { text-align: center; color: #94a3b8; padding: 30px 0; font-size: 13px; }
+.cart-item { display: grid; grid-template-columns: 1fr 48px 70px 24px; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+.ci-nome { font-size: 13px; color: #1e293b; }
+.ci-nome small { display: block; color: #94a3b8; font-size: 11px; }
+.ci-qtd { width: 100%; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; text-align: center; }
+.ci-sub { font-size: 13px; font-weight: 600; text-align: right; }
+.ci-x { border: none; background: none; color: #ef4444; cursor: pointer; font-size: 14px; }
+
+.cart-erro { margin: 0 12px; background: #fef2f2; color: #991b1b; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+
+.cart-foot { padding: 12px 16px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+.cart-linha { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin-bottom: 6px; color: #475569; }
+.cart-linha.desconto input { width: 90px; padding: 5px; border: 1px solid #cbd5e1; border-radius: 6px; text-align: right; }
+.cart-total {
+  display: flex; justify-content: space-between; align-items: center;
+  margin: 10px 0; padding-top: 10px; border-top: 2px dashed #cbd5e1;
+}
+.cart-total span { font-size: 14px; color: #475569; font-weight: 600; }
+.cart-total strong { font-size: 28px; color: #16a34a; font-weight: 800; }
+.cart-pgto { margin-bottom: 10px; }
+.cart-finalizar {
+  width: 100%; padding: 14px; border: none; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(135deg, #16a34a, #22c55e); color: #fff; font-size: 16px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.cart-finalizar:disabled { opacity: 0.5; cursor: not-allowed; }
+.cart-finalizar:hover:not(:disabled) { filter: brightness(1.05); }
+
+kbd {
+  background: rgba(255,255,255,0.25); border-radius: 4px; padding: 1px 5px;
+  font-size: 11px; font-family: monospace; border: 1px solid rgba(0,0,0,0.1);
+}
+.cart-cliente kbd, .cart-linha kbd { background: #e2e8f0; color: #475569; }
+
+.venda-toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: #16a34a; color: #fff; padding: 14px 26px; border-radius: 30px;
+  font-weight: 700; box-shadow: 0 8px 24px rgba(22,163,74,0.4); z-index: 200;
+}
+
+/* ---------- CAIXA ---------- */
+.caixa-status { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-radius: 10px; }
+.caixa-status.aberto { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.caixa-status.fechado { background: #f8fafc; border: 1px solid #e2e8f0; }
+.caixa-label { display: block; font-size: 12px; color: #64748b; font-weight: 700; letter-spacing: 0.5px; }
+.caixa-saldo { display: block; font-size: 28px; font-weight: 800; color: #16a34a; }
+.caixa-status small { color: #94a3b8; font-size: 12px; }
+
+/* ---------- responsivo ---------- */
+@media (max-width: 1024px) {
+  .pdv2-grid { grid-template-columns: 1fr; }
+  .pdv2-kpis { grid-template-columns: repeat(2, 1fr); }
+}
