@@ -169,3 +169,7 @@ coverage/
 
 # Electron
 dist_electron/
+
+# Referências de estudo — código-fonte clonado (NÃO versionar no SnapPay; manter isolado)
+# Mantém apenas os relatórios .md; ignora os clones (inclui o Fome de Que, que tem repo próprio)
+referencias/*/src/
