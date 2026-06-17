@@ -7,6 +7,11 @@ import authRoutes from "./routes/auth.js";
 import modulosRoutes from "./routes/modulos.js";
 import categoriasRoutes from "./routes/categorias.js";
 import caixaRoutes from "./routes/caixa.js";
+import fornecedoresRoutes from "./routes/fornecedores.js";
+import comprasRoutes from "./routes/compras.js";
+import financeiroRoutes from "./routes/financeiro.js";
+import configuracoes from "./routes/configuracoes.js";
+import auditoriaRoutes from "./routes/auditoria.js";
 
 const app = express();
 app.use(cors());
@@ -14,6 +19,8 @@ app.use(express.json());
 
 // ----------------------------------------------------------------------------
 // FASE 0 — Fundação: auth, módulos, categorias, caixa
+// FASE 2 — Gestão: fornecedores, compras, financeiro, configurações, auditoria
+// (públicos: auth; privados: resto)
 // ----------------------------------------------------------------------------
 app.use("/api/auth", authRoutes);
 app.use("/api/modulos", modulosRoutes);
@@ -22,6 +29,13 @@ app.use("/api/caixa", caixaRoutes);
 
 // A partir daqui, todo /api exige autenticação (login fica acima, é público)
 app.use("/api", requireAuth);
+
+// Fase 2 — Gestão
+app.use("/api/fornecedores", fornecedoresRoutes);
+app.use("/api/compras", comprasRoutes);
+app.use("/api/financeiro", financeiroRoutes);
+app.use("/api/configuracoes", configuracoes);
+app.use("/api/auditoria", auditoriaRoutes);
 
 // ----------------------------------------------------------------------------
 // PRODUTOS (escopo por empresa do usuário autenticado)

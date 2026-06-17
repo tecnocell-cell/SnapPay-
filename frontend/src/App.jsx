@@ -14,6 +14,11 @@ import Vendas from "./pages/Vendas";
 import Clientes from "./pages/Clientes";
 import Relatorios from "./pages/Relatorios";
 import Modulos from "./pages/Modulos";
+import Fornecedores from "./pages/Fornecedores";
+import Compras from "./pages/Compras";
+import Financeiro from "./pages/Financeiro";
+import Configuracoes from "./pages/Configuracoes";
+import Auditoria from "./pages/Auditoria";
 
 const PAGINAS = {
   pdv: { comp: <PDV />, modulo: "pdv" },
@@ -25,6 +30,11 @@ const PAGINAS = {
   clientes: { comp: <Clientes />, modulo: "cadastro" },
   relatorios: { comp: <Relatorios />, modulo: "relatorios" },
   modulos: { comp: <Modulos />, modulo: "cadastro" },
+  fornecedores: { comp: <Fornecedores />, modulo: "compras" },
+  compras: { comp: <Compras />, modulo: "compras" },
+  financeiro: { comp: <Financeiro />, modulo: "financeiro" },
+  configuracoes: { comp: <Configuracoes />, modulo: "cadastro" },
+  auditoria: { comp: <Auditoria />, modulo: "cadastro" },
 };
 
 function Relogio() {
