@@ -1,11 +1,11 @@
 import express from "express";
 import { query } from "../db.js";
-import { empresaId } from "../auth.js";
+import { empresaId, requirePermissao } from "../auth.js";
 
 const router = express.Router();
 
 // GET /marcas - Lista de marcas
-router.get("/", async (req, res) => {
+router.get("/", requirePermissao("produtos.ver"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const marcas = await query("SELECT * FROM marcas WHERE empresa_id = $1 AND ativo = TRUE ORDER BY nome", [eid]);
@@ -16,7 +16,7 @@ router.get("/", async (req, res) => {
 });
 
 // POST /marcas - Criar marca
-router.post("/", async (req, res) => {
+router.post("/", requirePermissao("produtos.editar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const { nome, descricao } = req.body;
@@ -38,7 +38,7 @@ router.post("/", async (req, res) => {
 });
 
 // PUT /marcas/:id - Atualizar marca
-router.put("/:id", async (req, res) => {
+router.put("/:id", requirePermissao("produtos.editar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const { nome, descricao } = req.body;
@@ -56,7 +56,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // DELETE /marcas/:id - Inativar marca
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requirePermissao("produtos.editar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     await query("UPDATE marcas SET ativo = FALSE WHERE id = $1 AND empresa_id = $2", [req.params.id, eid]);

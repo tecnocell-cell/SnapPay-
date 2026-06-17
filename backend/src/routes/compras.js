@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { query, pool } from "../db.js";
-import { requireAuth, empresaId } from "../auth.js";
+import { requireAuth, empresaId, requirePermissao } from "../auth.js";
+import { registrarAuditoria } from "./auditoria.js";
 
 const router = Router();
 
 // GET /api/compras - Lista com filtros
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   try {
     const { status } = req.query;
     const eid = empresaId(req);
@@ -32,7 +33,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // GET /api/compras/:id - Detalhes com itens
-router.get("/:id", requireAuth, async (req, res) => {
+router.get("/:id", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const compra = await query(
@@ -56,7 +57,7 @@ router.get("/:id", requireAuth, async (req, res) => {
 });
 
 // POST /api/compras - Criar nova compra
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const {
@@ -104,6 +105,8 @@ router.post("/", requireAuth, async (req, res) => {
       }
 
       await client.query("COMMIT");
+      await registrarAuditoria(req.usuario.id, eid, "CREATE", "compras", compraId,
+        `Criou compra #${compraId} (R$ ${valorFinal})`, null, { id: compraId, valor_total: valorFinal });
       res.status(201).json({ id: compraId, valor_total: valorFinal });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -118,7 +121,7 @@ router.post("/", requireAuth, async (req, res) => {
 });
 
 // PUT /api/compras/:id - Atualizar dados da compra
-router.put("/:id", requireAuth, async (req, res) => {
+router.put("/:id", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const { data_vencimento, condicao_pagamento, frete, desconto, acrescimo, observacoes } = req.body;
@@ -145,7 +148,7 @@ router.put("/:id", requireAuth, async (req, res) => {
 });
 
 // PUT /api/compras/:id/receber - Marcar como recebida + criar conta a pagar
-router.put("/:id/receber", requireAuth, async (req, res) => {
+router.put("/:id/receber", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const client = await pool.connect();
@@ -215,6 +218,8 @@ router.put("/:id/receber", requireAuth, async (req, res) => {
       );
 
       await client.query("COMMIT");
+      await registrarAuditoria(req.usuario.id, eid, "RECEBIMENTO", "compras", Number(req.params.id),
+        `Recebeu compra #${req.params.id} (R$ ${compraData.valor_total}) e gerou conta a pagar`, null, null);
       res.json({
         ok: true,
         msg: "Compra recebida, estoque atualizado e conta a pagar criada automaticamente"
@@ -233,7 +238,7 @@ router.put("/:id/receber", requireAuth, async (req, res) => {
 });
 
 // DELETE /api/compras/:id - Cancelar compra
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const compra = await query(

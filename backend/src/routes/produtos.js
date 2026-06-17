@@ -1,11 +1,12 @@
 import express from "express";
 import { query } from "../db.js";
-import { empresaId } from "../auth.js";
+import { empresaId, requirePermissao } from "../auth.js";
+import { registrarAuditoria } from "./auditoria.js";
 
 const router = express.Router();
 
 // GET /produtos - Lista com busca e filtros
-router.get("/", async (req, res) => {
+router.get("/", requirePermissao("produtos.ver"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const { q, categoria, marca, estoquebaixo } = req.query;
@@ -38,7 +39,7 @@ router.get("/", async (req, res) => {
 });
 
 // GET /produtos/:id - Detalhes do produto
-router.get("/:id", async (req, res) => {
+router.get("/:id", requirePermissao("produtos.ver"), async (req, res) => {
   try {
     const prod = await query("SELECT * FROM produtos WHERE id = $1 AND empresa_id = $2", [req.params.id, empresaId(req)]);
     if (!prod.rows.length) return res.status(404).json({ error: "Produto não encontrado" });
@@ -49,7 +50,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // POST /produtos - Criar novo produto
-router.post("/", async (req, res) => {
+router.post("/", requirePermissao("produtos.editar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const {
@@ -90,14 +91,16 @@ router.post("/", async (req, res) => {
         ncm, cest, cfop, origem, unidade_tributavel]
     );
 
-    res.json(result.rows[0]);
+    const novo = result.rows[0];
+    await registrarAuditoria(req.usuario.id, eid, "CREATE", "produtos", novo.id, `Criou produto ${novo.codigo}`, null, novo);
+    res.json(novo);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 // PUT /produtos/:id - Atualizar produto
-router.put("/:id", async (req, res) => {
+router.put("/:id", requirePermissao("produtos.editar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const {
@@ -164,6 +167,7 @@ router.put("/:id", async (req, res) => {
         ativo, req.params.id, eid]
     );
 
+    await registrarAuditoria(req.usuario.id, eid, "UPDATE", "produtos", Number(req.params.id), "Atualizou produto", prod.rows[0], result.rows[0]);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -171,10 +175,11 @@ router.put("/:id", async (req, res) => {
 });
 
 // DELETE /produtos/:id - Soft delete
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requirePermissao("produtos.editar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     await query("UPDATE produtos SET ativo = FALSE, atualizado_em = NOW() WHERE id = $1 AND empresa_id = $2", [req.params.id, eid]);
+    await registrarAuditoria(req.usuario.id, eid, "DELETE", "produtos", Number(req.params.id), "Inativou produto", null, null);
     res.json({ success: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -182,7 +187,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // GET /produtos/kardex/:id - Histórico de movimentações do produto
-router.get("/kardex/:id", async (req, res) => {
+router.get("/kardex/:id", requirePermissao("produtos.ver"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const { data_inicio, data_fim } = req.query;

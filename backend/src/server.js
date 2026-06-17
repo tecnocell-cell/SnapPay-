@@ -2,7 +2,8 @@ import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import { pool, query } from "./db.js";
-import { requireAuth, empresaId } from "./auth.js";
+import { requireAuth, empresaId, requirePermissao } from "./auth.js";
+import { registrarAuditoria } from "./routes/auditoria.js";
 import authRoutes from "./routes/auth.js";
 import modulosRoutes from "./routes/modulos.js";
 import categoriasRoutes from "./routes/categorias.js";
@@ -50,7 +51,7 @@ app.use("/api/inventario", inventarioRoutes);
 // ----------------------------------------------------------------------------
 // VENDAS
 // ----------------------------------------------------------------------------
-app.post("/api/vendas", requireAuth, async (req, res) => {
+app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (req, res) => {
   const eid = empresaId(req);
   const { clienteId, itens } = req.body;
   if (!itens || itens.length === 0) {
@@ -94,13 +95,17 @@ app.post("/api/vendas", requireAuth, async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [vendaId, item.produtoId, item.quantidade, item.precoUnitario, item.desconto || 0, valorTotal]
       );
+      const antes = await client.query("SELECT estoque_atual FROM produtos WHERE id = $1", [item.produtoId]);
+      const saldoAntes = Number(antes.rows[0].estoque_atual);
       await client.query(
         "UPDATE produtos SET estoque_atual = estoque_atual - $1 WHERE id = $2",
         [item.quantidade, item.produtoId]
       );
+      const saldoDepois = saldoAntes - Number(item.quantidade);
       await client.query(
-        "INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao) VALUES ($1, 'SAIDA', $2, $3)",
-        [item.produtoId, item.quantidade, `Venda #${vendaId}`]
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id)
+         VALUES ($1, 'SAIDA_VENDA', $2, $3, $4, $5, $6, $7, 'VENDA', $8)`,
+        [item.produtoId, item.quantidade, `Venda #${vendaId}`, eid, req.usuario.id, saldoAntes, saldoDepois, vendaId]
       );
     }
 
@@ -114,17 +119,18 @@ app.post("/api/vendas", requireAuth, async (req, res) => {
         "INSERT INTO venda_pagamentos (venda_id, forma, valor) VALUES ($1, $2, $3)",
         [vendaId, pagamento.forma, pagamento.valor]
       );
-    }
-
-    // Registra entrada no caixa (vendas em dinheiro alimentam o saldo)
-    if (caixaId) {
-      await client.query(
-        "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao) VALUES ($1,'VENDA',$2,$3)",
-        [caixaId, total, `Venda #${vendaId}`]
-      );
+      // Cada pagamento vira um movimento de caixa COM forma_pagamento.
+      // Só o DINHEIRO entra no saldo físico; PIX/cartão ficam no resumo eletrônico.
+      if (caixaId) {
+        await client.query(
+          "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, forma_pagamento, observacao, empresa_id, usuario_id, referencia_id) VALUES ($1,'VENDA',$2,$3,$4,$5,$6,$7)",
+          [caixaId, pagamento.valor, pagamento.forma, `Venda #${vendaId}`, eid, req.usuario.id, vendaId]
+        );
+      }
     }
 
     await client.query("COMMIT");
+    await registrarAuditoria(req.usuario.id, eid, "VENDA", "vendas", vendaId, `Finalizou venda #${vendaId} (R$ ${total.toFixed(2)})`, null, { id: vendaId, total });
     res.status(201).json({ id: vendaId, total, caixaId });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -158,24 +164,29 @@ app.get("/api/vendas", async (req, res) => {
   res.json(result.rows);
 });
 
-app.post("/api/vendas/:id/cancelar", async (req, res) => {
+app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async (req, res) => {
+  const eid = empresaId(req);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const venda = await client.query("SELECT status FROM vendas WHERE id = $1 AND empresa_id = $2", [req.params.id, empresaId(req)]);
+    const venda = await client.query("SELECT status FROM vendas WHERE id = $1 AND empresa_id = $2", [req.params.id, eid]);
     if (venda.rowCount === 0) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Venda não encontrada" }); }
     if (venda.rows[0].status === "CANCELADA") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Venda já cancelada" }); }
     // devolve estoque
     const itens = await client.query("SELECT produto_id, quantidade FROM venda_itens WHERE venda_id = $1", [req.params.id]);
     for (const it of itens.rows) {
+      const antes = await client.query("SELECT estoque_atual FROM produtos WHERE id = $1", [it.produto_id]);
+      const saldoAntes = Number(antes.rows[0].estoque_atual);
       await client.query("UPDATE produtos SET estoque_atual = estoque_atual + $1 WHERE id = $2", [it.quantidade, it.produto_id]);
       await client.query(
-        "INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao) VALUES ($1, 'ENTRADA', $2, $3)",
-        [it.produto_id, it.quantidade, `Estorno venda #${req.params.id}`]
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id)
+         VALUES ($1, 'CANCELAMENTO_VENDA', $2, $3, $4, $5, $6, $7, 'VENDA', $8)`,
+        [it.produto_id, it.quantidade, `Estorno venda #${req.params.id}`, eid, req.usuario.id, saldoAntes, saldoAntes + Number(it.quantidade), req.params.id]
       );
     }
     await client.query("UPDATE vendas SET status = 'CANCELADA' WHERE id = $1", [req.params.id]);
     await client.query("COMMIT");
+    await registrarAuditoria(req.usuario.id, eid, "UPDATE", "vendas", Number(req.params.id), `Cancelou venda #${req.params.id}`, null, null);
     res.json({ ok: true });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -224,7 +235,7 @@ app.get("/api/clientes/:id/historico", async (req, res) => {
 // ----------------------------------------------------------------------------
 // ESTOQUE (Sprint 2C)
 // ----------------------------------------------------------------------------
-app.get("/api/estoque/alertas", async (req, res) => {
+app.get("/api/estoque/alertas", requirePermissao("produtos.ver"), async (req, res) => {
   const result = await query(
     "SELECT id, codigo, nome, estoque_atual, estoque_minimo FROM produtos WHERE estoque_atual <= estoque_minimo AND ativo = TRUE AND empresa_id = $1 ORDER BY estoque_atual",
     [empresaId(req)]
@@ -232,25 +243,33 @@ app.get("/api/estoque/alertas", async (req, res) => {
   res.json(result.rows);
 });
 
-app.post("/api/estoque/movimentar", async (req, res) => {
+app.post("/api/estoque/movimentar", requirePermissao("estoque.editar"), async (req, res) => {
+  const eid = empresaId(req);
   const { produtoId, tipo, quantidade, observacao } = req.body;
   if (!produtoId || !tipo || !quantidade) {
     return res.status(400).json({ error: "Dados incompletos" });
   }
-  const delta = tipo === "ENTRADA" ? quantidade : -quantidade;
+  const delta = tipo === "ENTRADA" ? Number(quantidade) : -Number(quantidade);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("UPDATE produtos SET estoque_atual = estoque_atual + $1 WHERE id = $2", [delta, produtoId]);
+    const antes = await client.query("SELECT estoque_atual FROM produtos WHERE id = $1 AND empresa_id = $2 FOR UPDATE", [produtoId, eid]);
+    if (antes.rowCount === 0) throw { status: 404, msg: "Produto não encontrado" };
+    const saldoAntes = Number(antes.rows[0].estoque_atual);
+    const saldoDepois = saldoAntes + delta;
+    await client.query("UPDATE produtos SET estoque_atual = $1 WHERE id = $2", [saldoDepois, produtoId]);
     await client.query(
-      "INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao) VALUES ($1, $2, $3, $4)",
-      [produtoId, tipo, quantidade, observacao || null]
+      `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'AJUSTE')`,
+      [produtoId, tipo === "ENTRADA" ? "AJUSTE_ENTRADA" : "AJUSTE_SAIDA", quantidade, observacao || null, eid, req.usuario.id, saldoAntes, saldoDepois]
     );
     await client.query("COMMIT");
+    await registrarAuditoria(req.usuario.id, eid, "UPDATE", "estoque_movimentacao", produtoId, `Ajuste manual de estoque (${tipo} ${quantidade})`, null, null);
     const prod = await query("SELECT id, nome, estoque_atual FROM produtos WHERE id = $1", [produtoId]);
     res.status(201).json(prod.rows[0]);
   } catch (err) {
     await client.query("ROLLBACK");
+    if (err && err.status) return res.status(err.status).json({ error: err.msg });
     console.error(err);
     res.status(500).json({ error: "Erro ao movimentar estoque" });
   } finally {
@@ -261,7 +280,7 @@ app.post("/api/estoque/movimentar", async (req, res) => {
 // ----------------------------------------------------------------------------
 // RELATÓRIOS (Sprint 2B)
 // ----------------------------------------------------------------------------
-app.get("/api/relatorios/resumo", async (req, res) => {
+app.get("/api/relatorios/resumo", requirePermissao("relatorios.ver"), async (req, res) => {
   const eid = empresaId(req);
   const hoje = await query(
     "SELECT COALESCE(SUM(valor_total),0) AS total, COUNT(*) AS qtd FROM vendas WHERE status = 'FINALIZADA' AND empresa_id = $1 AND finalizada_em::date = CURRENT_DATE",
@@ -279,7 +298,7 @@ app.get("/api/relatorios/resumo", async (req, res) => {
   });
 });
 
-app.get("/api/relatorios/top-produtos", async (req, res) => {
+app.get("/api/relatorios/top-produtos", requirePermissao("relatorios.ver"), async (req, res) => {
   const limite = Number(req.query.limite || 10);
   const result = await query(
     `SELECT p.id, p.nome, SUM(vi.quantidade) AS qtd, SUM(vi.valor_total) AS total
@@ -292,7 +311,7 @@ app.get("/api/relatorios/top-produtos", async (req, res) => {
   res.json(result.rows);
 });
 
-app.get("/api/relatorios/vendas-por-dia", async (req, res) => {
+app.get("/api/relatorios/vendas-por-dia", requirePermissao("relatorios.ver"), async (req, res) => {
   const result = await query(
     `SELECT finalizada_em::date AS dia, COUNT(*) AS qtd, SUM(valor_total) AS total
      FROM vendas WHERE status = 'FINALIZADA' AND empresa_id = $1 AND finalizada_em >= CURRENT_DATE - INTERVAL '30 days'
@@ -302,7 +321,7 @@ app.get("/api/relatorios/vendas-por-dia", async (req, res) => {
   res.json(result.rows);
 });
 
-app.get("/api/relatorios/pagamentos", async (req, res) => {
+app.get("/api/relatorios/pagamentos", requirePermissao("relatorios.ver"), async (req, res) => {
   const result = await query(
     `SELECT vp.forma, COUNT(*) AS qtd, SUM(vp.valor) AS total
      FROM venda_pagamentos vp JOIN vendas v ON v.id = vp.venda_id

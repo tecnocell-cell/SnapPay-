@@ -4,6 +4,7 @@ import {
   assinarToken, verificarSenha, buscarUsuarioPorEmail,
   permissoesDoUsuario, requireAuth,
 } from "../auth.js";
+import { registrarAuditoria } from "./auditoria.js";
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.post("/login", async (req, res) => {
   if (!ok) return res.status(401).json({ error: "Credenciais inválidas" });
 
   const token = assinarToken({ id: usuario.id, empresa_id: usuario.empresa_id, papel_chave: usuario.papel_chave });
+  await registrarAuditoria(usuario.id, usuario.empresa_id, "LOGIN", "usuarios", usuario.id, `Login de ${usuario.email}`, null, null);
   const permissoes = await permissoesDoUsuario(usuario.id);
   const empresa = await query("SELECT id, nome, segmento FROM empresas WHERE id = $1", [usuario.empresa_id]);
   res.json({

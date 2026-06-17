@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { query } from "../db.js";
-import { requireAuth, empresaId } from "../auth.js";
+import { requireAuth, empresaId, requirePermissao } from "../auth.js";
+import { registrarAuditoria } from "./auditoria.js";
 
 const router = Router();
 
 // GET /api/configuracoes
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireAuth, requirePermissao("config.editar"), async (req, res) => {
   const eid = empresaId(req);
   const result = await query(
     `SELECT * FROM configuracoes WHERE empresa_id = $1`,
@@ -28,7 +29,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // PUT /api/configuracoes
-router.put("/", requireAuth, async (req, res) => {
+router.put("/", requireAuth, requirePermissao("config.editar"), async (req, res) => {
   const eid = empresaId(req);
   const { icms, pis, cofins, ipi, tipo_nf, aliquota_principal } = req.body;
 
@@ -43,6 +44,7 @@ router.put("/", requireAuth, async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [eid, icms, pis, cofins, ipi || 0, tipo_nf || "NFCe", aliquota_principal || icms]
     );
+    await registrarAuditoria(req.usuario.id, eid, "CREATE", "configuracoes", result.rows[0].id, "Criou configurações fiscais", null, result.rows[0]);
     return res.json(result.rows[0]);
   }
 
@@ -52,6 +54,7 @@ router.put("/", requireAuth, async (req, res) => {
     [icms, pis, cofins, ipi || 0, tipo_nf || "NFCe", aliquota_principal || icms, eid]
   );
 
+  await registrarAuditoria(req.usuario.id, eid, "UPDATE", "configuracoes", result.rows[0].id, "Atualizou configurações fiscais", null, result.rows[0]);
   res.json(result.rows[0]);
 });
 

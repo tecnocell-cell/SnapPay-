@@ -1,6 +1,7 @@
 import express from "express";
 import { query } from "../db.js";
-import { empresaId } from "../auth.js";
+import { empresaId, requirePermissao } from "../auth.js";
+import { registrarAuditoria } from "./auditoria.js";
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.put("/", async (req, res) => {
+router.put("/", requirePermissao("config.editar"), async (req, res) => {
   try {
     const eid = empresaId(req);
     const {razao_social, nome_fantasia, cnpj, inscricao_estadual, inscricao_municipal,
@@ -28,6 +29,7 @@ router.put("/", async (req, res) => {
       [razao_social, nome_fantasia, cnpj, inscricao_estadual, inscricao_municipal,
         telefone, email, endereco, cidade, uf, cep, regime_tributario, logo_url, eid]
     );
+    await registrarAuditoria(req.usuario.id, eid, "UPDATE", "empresas", eid, "Atualizou dados da empresa", null, result.rows[0] || null);
     res.json(result.rows.length ? result.rows[0] : {});
   } catch (err) {
     res.status(400).json({ error: err.message });

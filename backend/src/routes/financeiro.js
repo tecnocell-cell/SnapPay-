@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { query } from "../db.js";
-import { requireAuth, empresaId } from "../auth.js";
+import { requireAuth, empresaId, requirePermissao } from "../auth.js";
+import { registrarAuditoria } from "./auditoria.js";
 
 const router = Router();
 
 // GET /api/financeiro/pagar
-router.get("/pagar", requireAuth, async (req, res) => {
+router.get("/pagar", requireAuth, requirePermissao("financeiro.ver"), async (req, res) => {
   const { status } = req.query;
   const eid = empresaId(req);
   let sql =
@@ -30,7 +31,7 @@ router.get("/pagar", requireAuth, async (req, res) => {
 });
 
 // GET /api/financeiro/receber
-router.get("/receber", requireAuth, async (req, res) => {
+router.get("/receber", requireAuth, requirePermissao("financeiro.ver"), async (req, res) => {
   const { status } = req.query;
   const eid = empresaId(req);
   let sql =
@@ -55,7 +56,7 @@ router.get("/receber", requireAuth, async (req, res) => {
 });
 
 // POST /api/financeiro/pagar
-router.post("/pagar", requireAuth, async (req, res) => {
+router.post("/pagar", requireAuth, requirePermissao("financeiro.gerenciar"), async (req, res) => {
   const eid = empresaId(req);
   const { fornecedorId, compraId, valor, dataVencimento, observacoes } = req.body;
 
@@ -69,6 +70,7 @@ router.post("/pagar", requireAuth, async (req, res) => {
        VALUES ($1, $2, $3, $4, 'PENDENTE', $5, $6) RETURNING *`,
       [fornecedorId, compraId || null, valor, dataVencimento, observacoes || null, eid]
     );
+    await registrarAuditoria(req.usuario.id, eid, "CREATE", "contas_pagar", result.rows[0].id, `Criou conta a pagar (R$ ${valor})`, null, result.rows[0]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -77,7 +79,7 @@ router.post("/pagar", requireAuth, async (req, res) => {
 });
 
 // POST /api/financeiro/receber
-router.post("/receber", requireAuth, async (req, res) => {
+router.post("/receber", requireAuth, requirePermissao("financeiro.gerenciar"), async (req, res) => {
   const eid = empresaId(req);
   const { clienteId, vendaId, valor, dataVencimento, observacoes } = req.body;
 
@@ -91,6 +93,7 @@ router.post("/receber", requireAuth, async (req, res) => {
        VALUES ($1, $2, $3, $4, 'PENDENTE', $5, $6) RETURNING *`,
       [clienteId, vendaId || null, valor, dataVencimento, observacoes || null, eid]
     );
+    await registrarAuditoria(req.usuario.id, eid, "CREATE", "contas_receber", result.rows[0].id, `Criou conta a receber (R$ ${valor})`, null, result.rows[0]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -99,29 +102,33 @@ router.post("/receber", requireAuth, async (req, res) => {
 });
 
 // PUT /api/financeiro/pagar/:id (marcar como paga)
-router.put("/pagar/:id", requireAuth, async (req, res) => {
+router.put("/pagar/:id", requireAuth, requirePermissao("financeiro.gerenciar"), async (req, res) => {
+  const eid = empresaId(req);
   const { dataPagamento } = req.body;
   const result = await query(
     `UPDATE contas_pagar SET status = 'PAGA', data_pagamento = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *`,
-    [dataPagamento || new Date().toISOString(), req.params.id, empresaId(req)]
+    [dataPagamento || new Date().toISOString(), req.params.id, eid]
   );
   if (result.rowCount === 0) return res.status(404).json({ error: "Conta a pagar não encontrada" });
+  await registrarAuditoria(req.usuario.id, eid, "FINANCEIRO", "contas_pagar", Number(req.params.id), `Liquidou conta a pagar (R$ ${result.rows[0].valor})`, null, result.rows[0]);
   res.json(result.rows[0]);
 });
 
 // PUT /api/financeiro/receber/:id (marcar como recebida)
-router.put("/receber/:id", requireAuth, async (req, res) => {
+router.put("/receber/:id", requireAuth, requirePermissao("financeiro.gerenciar"), async (req, res) => {
+  const eid = empresaId(req);
   const { dataRecebimento } = req.body;
   const result = await query(
     `UPDATE contas_receber SET status = 'RECEBIDA', data_recebimento = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *`,
-    [dataRecebimento || new Date().toISOString(), req.params.id, empresaId(req)]
+    [dataRecebimento || new Date().toISOString(), req.params.id, eid]
   );
   if (result.rowCount === 0) return res.status(404).json({ error: "Conta a receber não encontrada" });
+  await registrarAuditoria(req.usuario.id, eid, "FINANCEIRO", "contas_receber", Number(req.params.id), `Recebeu conta (R$ ${result.rows[0].valor})`, null, result.rows[0]);
   res.json(result.rows[0]);
 });
 
 // GET /api/financeiro/resumo
-router.get("/resumo", requireAuth, async (req, res) => {
+router.get("/resumo", requireAuth, requirePermissao("financeiro.ver"), async (req, res) => {
   const eid = empresaId(req);
 
   const pagar = await query(

@@ -1,39 +1,44 @@
 import { Router } from "express";
 import { query } from "../db.js";
-import { requireAuth, empresaId } from "../auth.js";
+import { requireAuth, empresaId, requirePermissao } from "../auth.js";
 
 const router = Router();
 
 // GET /api/auditoria
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireAuth, requirePermissao("auditoria.ver"), async (req, res) => {
   const { tipo, usuario_id, limite } = req.query;
   const eid = empresaId(req);
   const limit = Math.min(parseInt(limite) || 100, 500);
 
   let sql =
-    `SELECT id, usuario_id, u.nome as usuario_nome, tipo, tabela, registro_id, acao, dados_anteriores, dados_novos, criado_em
-     FROM auditoria a JOIN usuarios u ON u.id = a.usuario_id
+    `SELECT a.id, a.empresa_id, a.usuario_id, u.nome as usuario_nome, a.tipo, a.tabela, a.registro_id,
+            a.acao, a.dados_anteriores, a.dados_novos, a.criado_em
+     FROM auditoria a LEFT JOIN usuarios u ON u.id = a.usuario_id
      WHERE a.empresa_id = $1`;
   const params = [eid];
 
   if (tipo) {
     params.push(tipo);
-    sql += ` AND tipo = $${params.length}`;
+    sql += ` AND a.tipo = $${params.length}`;
   }
 
   if (usuario_id) {
     params.push(usuario_id);
-    sql += ` AND usuario_id = $${params.length}`;
+    sql += ` AND a.usuario_id = $${params.length}`;
   }
 
   sql += ` ORDER BY a.criado_em DESC LIMIT ${limit}`;
 
-  const result = await query(sql, params);
-  res.json(result.rows);
+  try {
+    const result = await query(sql, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/auditoria/:id
-router.get("/:id", requireAuth, async (req, res) => {
+router.get("/:id", requireAuth, requirePermissao("auditoria.ver"), async (req, res) => {
   const result = await query(
     `SELECT * FROM auditoria WHERE id = $1 AND empresa_id = $2`,
     [req.params.id, empresaId(req)]

@@ -1,8 +1,18 @@
 import { Router } from "express";
 import { pool, query } from "../db.js";
 import { requireAuth, requirePermissao, empresaId } from "../auth.js";
+import { registrarAuditoria } from "./auditoria.js";
 
 const router = Router();
+
+// Saldo FÍSICO (dinheiro): abertura + suprimento + vendas em dinheiro - sangria.
+// PIX e cartão NÃO entram no dinheiro da gaveta.
+const SQL_SALDO_DINHEIRO = `
+  COALESCE(SUM(CASE
+    WHEN tipo IN ('ABERTURA','SUPRIMENTO') THEN valor
+    WHEN tipo = 'VENDA' AND forma_pagamento = 'DINHEIRO' THEN valor
+    WHEN tipo = 'SANGRIA' THEN -valor
+    ELSE 0 END), 0)`;
 
 // GET /api/caixa/atual — caixa aberto da empresa (ou null)
 router.get("/atual", requireAuth, async (req, res) => {
@@ -14,9 +24,7 @@ router.get("/atual", requireAuth, async (req, res) => {
   if (r.rowCount === 0) return res.json({ aberto: false, caixa: null, saldo: 0 });
   const caixa = r.rows[0];
   const mov = await query(
-    `SELECT COALESCE(SUM(CASE WHEN tipo IN ('ABERTURA','SUPRIMENTO','VENDA') THEN valor
-                              WHEN tipo = 'SANGRIA' THEN -valor ELSE 0 END),0) AS saldo
-     FROM caixa_movimentos WHERE caixa_id = $1`,
+    `SELECT ${SQL_SALDO_DINHEIRO} AS saldo FROM caixa_movimentos WHERE caixa_id = $1`,
     [caixa.id]
   );
   res.json({ aberto: true, caixa, saldo: Number(mov.rows[0].saldo) });
@@ -40,6 +48,7 @@ router.post("/abrir", requireAuth, requirePermissao("caixa.operar"), async (req,
       [c.rows[0].id, valor]
     );
     await client.query("COMMIT");
+    await registrarAuditoria(req.usuario.id, eid, "CAIXA", "caixas", c.rows[0].id, `Abriu caixa (abertura R$ ${valor})`, null, c.rows[0]);
     res.status(201).json(c.rows[0]);
   } catch (e) {
     await client.query("ROLLBACK"); console.error(e);
@@ -56,9 +65,10 @@ router.post("/movimentar", requireAuth, requirePermissao("caixa.sangria"), async
   const c = await query("SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO'", [eid]);
   if (c.rowCount === 0) return res.status(400).json({ error: "Nenhum caixa aberto" });
   await query(
-    "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao) VALUES ($1,$2,$3,$4)",
-    [c.rows[0].id, tipo, valor, observacao || null]
+    "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao, empresa_id, usuario_id, forma_pagamento) VALUES ($1,$2,$3,$4,$5,$6,'DINHEIRO')",
+    [c.rows[0].id, tipo, valor, observacao || null, eid, req.usuario.id]
   );
+  await registrarAuditoria(req.usuario.id, eid, "CAIXA", "caixas", c.rows[0].id, `${tipo} de R$ ${valor}`, null, null);
   res.status(201).json({ ok: true });
 });
 
@@ -69,9 +79,7 @@ router.post("/fechar", requireAuth, requirePermissao("caixa.operar"), async (req
   if (c.rowCount === 0) return res.status(400).json({ error: "Nenhum caixa aberto" });
   const caixaId = c.rows[0].id;
   const mov = await query(
-    `SELECT COALESCE(SUM(CASE WHEN tipo IN ('ABERTURA','SUPRIMENTO','VENDA') THEN valor
-                              WHEN tipo='SANGRIA' THEN -valor ELSE 0 END),0) AS saldo
-     FROM caixa_movimentos WHERE caixa_id = $1`,
+    `SELECT ${SQL_SALDO_DINHEIRO} AS saldo FROM caixa_movimentos WHERE caixa_id = $1`,
     [caixaId]
   );
   const saldo = Number(mov.rows[0].saldo);
@@ -80,9 +88,10 @@ router.post("/fechar", requireAuth, requirePermissao("caixa.operar"), async (req
     [saldo, saldo, 0, req.usuario.id, caixaId]
   );
   await query(
-    "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao) VALUES ($1,'FECHAMENTO',$2,'Fechamento de caixa')",
-    [caixaId, saldo]
+    "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao, empresa_id, usuario_id) VALUES ($1,'FECHAMENTO',$2,'Fechamento de caixa',$3,$4)",
+    [caixaId, saldo, eid, req.usuario.id]
   );
+  await registrarAuditoria(req.usuario.id, eid, "CAIXA", "caixas", caixaId, `Fechou caixa (saldo dinheiro R$ ${saldo})`, null, null);
   res.json({ ok: true, saldoFinal: saldo, diferenca: 0 });
 });
 
@@ -96,7 +105,7 @@ router.post("/fechar-com-conferencia", requireAuth, requirePermissao("caixa.oper
     if (c.rowCount === 0) return res.status(400).json({ error: "Nenhum caixa aberto" });
     const caixaId = c.rows[0].id;
 
-    // Calcular saldo esperado (por forma de pagamento)
+    // Vendas por forma de pagamento
     const formas = await query(
       `SELECT forma_pagamento, COALESCE(SUM(valor), 0) AS total
        FROM caixa_movimentos
@@ -105,35 +114,45 @@ router.post("/fechar-com-conferencia", requireAuth, requirePermissao("caixa.oper
       [caixaId]
     );
 
-    // Saldo total esperado
-    const mov = await query(
-      `SELECT COALESCE(SUM(CASE WHEN tipo IN ('ABERTURA','SUPRIMENTO','VENDA') THEN valor
-                                WHEN tipo='SANGRIA' THEN -valor ELSE 0 END),0) AS saldo
-       FROM caixa_movimentos WHERE caixa_id = $1`,
+    // Saldo ESPERADO em DINHEIRO (físico na gaveta)
+    const movDin = await query(
+      `SELECT ${SQL_SALDO_DINHEIRO} AS saldo FROM caixa_movimentos WHERE caixa_id = $1`,
       [caixaId]
     );
-    const saldoEsperado = Number(mov.rows[0].saldo);
-    const saldoContado = Number(valor_contado || 0);
-    const diferenca = saldoContado - saldoEsperado;
+    const esperadoDinheiro = Number(movDin.rows[0].saldo);
 
-    // Atualizar caixa
+    // Total eletrônico (PIX + cartões) — não entra no dinheiro contado
+    const eletronico = formas.rows
+      .filter(f => (f.forma_pagamento || "DINHEIRO") !== "DINHEIRO")
+      .reduce((acc, f) => acc + Number(f.total), 0);
+
+    const dinheiroContado = Number(valor_contado || 0);
+    const diferenca = dinheiroContado - esperadoDinheiro; // diferença SÓ sobre dinheiro físico
+
     await query(
       `UPDATE caixas
        SET status='FECHADO', valor_fechamento=$1, valor_contado=$2, diferenca=$3,
            observacao_fechamento=$4, fechado_em=NOW(), usuario_fechamento_id=$5, atualizado_em=NOW()
        WHERE id=$6`,
-      [saldoEsperado, saldoContado, diferenca, observacao || null, req.usuario.id, caixaId]
+      [esperadoDinheiro, dinheiroContado, diferenca, observacao || null, req.usuario.id, caixaId]
     );
+    await query(
+      "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao, empresa_id, usuario_id) VALUES ($1,'FECHAMENTO',$2,$3,$4,$5)",
+      [caixaId, esperadoDinheiro, "Fechamento com conferência", eid, req.usuario.id]
+    );
+    await registrarAuditoria(req.usuario.id, eid, "CAIXA", "caixas", caixaId,
+      `Fechou caixa com conferência. Esperado(dinheiro) R$ ${esperadoDinheiro}, contado R$ ${dinheiroContado}, diferença R$ ${diferenca.toFixed(2)}`, null, null);
 
     res.json({
       ok: true,
-      saldoEsperado,
-      saldoContado,
+      esperadoDinheiro,
+      dinheiroContado,
       diferenca,
+      eletronico,
       porForma: formas.rows.map(f => ({
         forma: f.forma_pagamento || "DINHEIRO",
-        valor: Number(f.total)
-      }))
+        valor: Number(f.total),
+      })),
     });
   } catch (err) {
     console.error(err);

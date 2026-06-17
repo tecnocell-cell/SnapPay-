@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { query } from "../db.js";
-import { requireAuth, empresaId } from "../auth.js";
+import { requireAuth, empresaId, requirePermissao } from "../auth.js";
+import { registrarAuditoria } from "./auditoria.js";
 
 const router = Router();
 
 // GET /api/fornecedores
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   const { q } = req.query;
   const params = [empresaId(req)];
   let sql =
@@ -21,7 +22,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // GET /api/fornecedores/:id
-router.get("/:id", requireAuth, async (req, res) => {
+router.get("/:id", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   const result = await query(
     `SELECT * FROM fornecedores WHERE id = $1 AND empresa_id = $2`,
     [req.params.id, empresaId(req)]
@@ -31,7 +32,7 @@ router.get("/:id", requireAuth, async (req, res) => {
 });
 
 // POST /api/fornecedores
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   const eid = empresaId(req);
   const { nome, cnpj, email, telefone, endereco, observacoes } = req.body;
   if (!nome) return res.status(400).json({ error: "Nome é obrigatório" });
@@ -42,6 +43,7 @@ router.post("/", requireAuth, async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [nome, cnpj || null, email || null, telefone || null, endereco || null, observacoes || null, eid]
     );
+    await registrarAuditoria(req.usuario.id, eid, "CREATE", "fornecedores", result.rows[0].id, `Criou fornecedor ${nome}`, null, result.rows[0]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === "23505") return res.status(409).json({ error: "CNPJ já cadastrado" });
@@ -51,7 +53,7 @@ router.post("/", requireAuth, async (req, res) => {
 });
 
 // PUT /api/fornecedores/:id
-router.put("/:id", requireAuth, async (req, res) => {
+router.put("/:id", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   const eid = empresaId(req);
   const { nome, cnpj, email, telefone, endereco, observacoes } = req.body;
   const result = await query(
@@ -64,7 +66,7 @@ router.put("/:id", requireAuth, async (req, res) => {
 });
 
 // DELETE /api/fornecedores/:id
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireAuth, requirePermissao("compras.gerenciar"), async (req, res) => {
   await query(
     `UPDATE fornecedores SET ativo = FALSE WHERE id = $1 AND empresa_id = $2`,
     [req.params.id, empresaId(req)]
