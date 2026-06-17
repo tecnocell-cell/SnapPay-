@@ -14,6 +14,8 @@ import comprasRoutes from "./routes/compras.js";
 import financeiroRoutes from "./routes/financeiro.js";
 import configuracoes from "./routes/configuracoes.js";
 import auditoriaRoutes from "./routes/auditoria.js";
+import empresaRoutes from "./routes/empresa.js";
+import inventarioRoutes from "./routes/inventario.js";
 
 const app = express();
 app.use(cors());
@@ -42,6 +44,8 @@ app.use("/api/auditoria", auditoriaRoutes);
 // Fase 3 — Produtos profissionais
 app.use("/api/produtos", produtosRoutes);
 app.use("/api/marcas", marcasRoutes);
+app.use("/api/empresa", empresaRoutes);
+app.use("/api/inventario", inventarioRoutes);
 
 // ----------------------------------------------------------------------------
 // VENDAS
