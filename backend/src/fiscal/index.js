@@ -1,4 +1,5 @@
 import { MockFiscalProvider } from "./providers/mock.js";
+import { FocusNFeProvider } from "./providers/focusnfe.js";
 import { FiscalProvider } from "./provider.js";
 
 // Placeholder para provedores reais. Implementar quando a integração com a
@@ -19,8 +20,8 @@ class ProviderNaoImplementado extends FiscalProvider {
 
 const FACTORIES = {
   MOCK: (config) => new MockFiscalProvider(config),
+  FOCUS_NFE: (config) => new FocusNFeProvider(config),
   NUVEM_FISCAL: (config) => new ProviderNaoImplementado(config, "NUVEM_FISCAL"),
-  FOCUS_NFE: (config) => new ProviderNaoImplementado(config, "FOCUS_NFE"),
   PLUGNOTAS: (config) => new ProviderNaoImplementado(config, "PLUGNOTAS"),
   TECNOSPEED: (config) => new ProviderNaoImplementado(config, "TECNOSPEED"),
 };

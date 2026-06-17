@@ -19,6 +19,9 @@ import empresaRoutes from "./routes/empresa.js";
 import inventarioRoutes from "./routes/inventario.js";
 import fiscalRoutes from "./routes/fiscal.js";
 import syncRoutes from "./routes/sync.js";
+import precosRoutes from "./routes/precos.js";
+import promocoesRoutes from "./routes/promocoes.js";
+import unidadesRoutes from "./routes/unidades.js";
 
 const app = express();
 app.use(cors());
@@ -55,6 +58,11 @@ app.use("/api/fiscal", fiscalRoutes);
 
 // Fase 5 — Offline First / sincronização de terminais PDV
 app.use("/api/sync", syncRoutes);
+
+// Fase 6 — Consolidação comercial: tabelas de preço, promoções, multi-loja
+app.use("/api/precos", precosRoutes);
+app.use("/api/promocoes", promocoesRoutes);
+app.use("/api/unidades", unidadesRoutes);
 
 // ----------------------------------------------------------------------------
 // VENDAS
