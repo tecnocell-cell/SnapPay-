@@ -2,6 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
+const MODOS = [
+  { id: "mercado", label: "Mercado", icon: "🏪" },
+  { id: "loja", label: "Loja", icon: "🛍️" },
+];
+
 export default function PDV() {
   const { can } = useAuth();
   const [produtos, setProdutos] = useState([]);
@@ -13,30 +18,26 @@ export default function PDV() {
   const [clienteId, setClienteId] = useState("");
   const [formaPagamento, setFormaPagamento] = useState("DINHEIRO");
   const [descontoTotal, setDescontoTotal] = useState(0);
-  const [caixa, setCaixa] = useState({ aberto: false, saldo: 0 });
-  const [kpis, setKpis] = useState({ hoje: { total: 0, qtd: 0 }, ticketMedio: 0 });
+  const [caixaAberto, setCaixaAberto] = useState(false);
   const [vendaOk, setVendaOk] = useState(null);
   const [erro, setErro] = useState("");
+  const [modo, setModo] = useState(() => localStorage.getItem("snappay_pdv_modo") || "mercado");
   const buscaRef = useRef(null);
+
+  useEffect(() => { localStorage.setItem("snappay_pdv_modo", modo); }, [modo]);
 
   // ---- carregamento ----
   const carregarProdutos = useCallback(async () => {
     const params = new URLSearchParams();
     if (busca) params.set("q", busca);
     if (catAtiva) params.set("categoria", catAtiva);
-    // sem busca e sem categoria: traz catálogo (q vazio retorna tudo da empresa)
     setProdutos(await api.get(`/produtos?${params.toString()}`));
   }, [busca, catAtiva]);
 
   useEffect(() => { api.get("/categorias").then(setCategorias).catch(() => {}); }, []);
   useEffect(() => { api.get("/clientes").then(setClientes).catch(() => {}); }, []);
   useEffect(() => { const t = setTimeout(carregarProdutos, 200); return () => clearTimeout(t); }, [carregarProdutos]);
-
-  async function atualizarPainel() {
-    try { setCaixa(await api.get("/caixa/atual")); } catch { /* */ }
-    try { setKpis(await api.get("/relatorios/resumo")); } catch { /* */ }
-  }
-  useEffect(() => { atualizarPainel(); }, []);
+  useEffect(() => { api.get("/caixa/atual").then((c) => setCaixaAberto(c.aberto)).catch(() => {}); }, []);
 
   // ---- carrinho ----
   const subtotal = carrinho.reduce((a, i) => a + i.quantidade * i.precoUnitario, 0);
@@ -57,6 +58,14 @@ export default function PDV() {
   function remover(id) { setCarrinho((prev) => prev.filter((i) => i.produtoId !== id)); }
   function limpar() { setCarrinho([]); setClienteId(""); setDescontoTotal(0); setErro(""); }
 
+  // Enter na busca do Modo Mercado: adiciona 1º resultado (fluxo leitor de código)
+  function onBuscaKeyDown(e) {
+    if (e.key === "Enter" && produtos.length > 0) {
+      adicionar(produtos[0]);
+      setBusca("");
+    }
+  }
+
   async function finalizar() {
     if (carrinho.length === 0) return;
     setErro("");
@@ -67,7 +76,7 @@ export default function PDV() {
         pagamentos: [{ forma: formaPagamento, valor: total }],
       });
       setVendaOk({ id: data.id, total });
-      limpar(); carregarProdutos(); atualizarPainel();
+      limpar(); carregarProdutos();
       setTimeout(() => setVendaOk(null), 4000);
     } catch (err) {
       setErro(err.message || "Erro ao finalizar venda");
@@ -84,8 +93,8 @@ export default function PDV() {
       else if (k === "F4") document.getElementById("pdv-desconto")?.focus();
       else if (k === "F5") finalizar();
       else if (k === "F6") { if (carrinho.length) remover(carrinho[carrinho.length - 1].produtoId); }
-      else if (k === "F7") abrirCaixaRapido();
-      else if (k === "F8") fecharCaixaRapido();
+      else if (k === "F7") caixaRapido("/caixa/abrir", { valorAbertura: 0 }, "caixa.operar", caixaAberto, false);
+      else if (k === "F8") caixaRapido("/caixa/fechar", {}, "caixa.operar", !caixaAberto, true);
       else if (k === "F9") movimentarCaixa("SANGRIA");
       else if (k === "F10") movimentarCaixa("SUPRIMENTO");
       else if (k === "Escape") limpar();
@@ -94,132 +103,151 @@ export default function PDV() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  async function abrirCaixaRapido() {
-    if (caixa.aberto || !can("caixa.operar")) return;
-    const v = Number(prompt("Abrir caixa — valor inicial:", "0") || 0);
-    await api.post("/caixa/abrir", { valorAbertura: v }); atualizarPainel();
-  }
-  async function fecharCaixaRapido() {
-    if (!caixa.aberto || !can("caixa.operar")) return;
-    if (!confirm("Fechar o caixa?")) return;
-    const r = await api.post("/caixa/fechar", {});
-    alert(`Caixa fechado. Saldo: R$ ${Number(r.saldoFinal).toFixed(2)}`); atualizarPainel();
+  async function caixaRapido(rota, body, perm, bloqueado, isFechar) {
+    if (bloqueado || !can(perm)) return;
+    if (isFechar && !confirm("Fechar o caixa?")) return;
+    const r = await api.post(rota, body);
+    if (isFechar && r) alert(`Caixa fechado. Saldo: R$ ${Number(r.saldoFinal).toFixed(2)}`);
+    api.get("/caixa/atual").then((c) => setCaixaAberto(c.aberto));
   }
   async function movimentarCaixa(tipo) {
-    if (!caixa.aberto || !can("caixa.sangria")) return;
+    if (!caixaAberto || !can("caixa.sangria")) return;
     const v = Number(prompt(`${tipo} — valor:`, "0") || 0);
     if (v <= 0) return;
-    await api.post("/caixa/movimentar", { tipo, valor: v }); atualizarPainel();
+    await api.post("/caixa/movimentar", { tipo, valor: v });
   }
+
+  // ----- carrinho compartilhado entre os modos -----
+  const Carrinho = (
+    <aside className="pdv2-cart">
+      <div className="cart-head">
+        <h3>🛒 Carrinho</h3>
+        <span className="cart-count">{carrinho.length}</span>
+      </div>
+
+      <div className="cart-cliente">
+        <select id="pdv-cliente" value={clienteId} onChange={(e) => setClienteId(e.target.value)} title="Cliente (F2)">
+          <option value="">Consumidor final</option>
+          {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+        </select>
+      </div>
+
+      <div className="cart-itens">
+        {carrinho.length === 0 ? (
+          <div className="cart-vazio">Nenhum item</div>
+        ) : carrinho.map((i) => (
+          <div key={i.produtoId} className="cart-item">
+            <div className="ci-nome">{i.nome.substring(0, 24)}<small>R$ {i.precoUnitario.toFixed(2)}</small></div>
+            <input className="ci-qtd" type="number" min="1" value={i.quantidade}
+              onChange={(e) => alterarQtd(i.produtoId, Number(e.target.value))} />
+            <div className="ci-sub">R$ {(i.quantidade * i.precoUnitario).toFixed(2)}</div>
+            <button className="ci-x" onClick={() => remover(i.produtoId)}>✕</button>
+          </div>
+        ))}
+      </div>
+
+      {erro && <div className="cart-erro">⚠️ {erro}</div>}
+
+      <div className="cart-foot">
+        <div className="cart-total"><span>TOTAL</span><strong>R$ {total.toFixed(2)}</strong></div>
+        <button className="cart-finalizar" onClick={finalizar} disabled={carrinho.length === 0}>
+          ✓ FINALIZAR <kbd>F5</kbd>
+        </button>
+        <details className="cart-extras">
+          <summary>Desconto e pagamento</summary>
+          <div className="cart-linha desconto">
+            <span>Desconto <kbd>F4</kbd></span>
+            <input id="pdv-desconto" type="number" min="0" value={descontoTotal}
+              onChange={(e) => setDescontoTotal(e.target.value)} />
+          </div>
+          <select className="cart-pgto" value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)}>
+            <option value="DINHEIRO">💵 Dinheiro</option>
+            <option value="DEBITO">🏧 Débito</option>
+            <option value="CREDITO">💳 Crédito</option>
+            <option value="PIX">📱 PIX</option>
+            <option value="CREDIARIO">📋 Crediário</option>
+          </select>
+        </details>
+      </div>
+    </aside>
+  );
 
   return (
     <div className="pdv2">
-      {/* faixa de KPIs / dashboard */}
-      <div className="pdv2-kpis">
-        <div className="kpi"><span>Vendas hoje</span><strong>R$ {kpis.hoje.total.toFixed(2)}</strong></div>
-        <div className="kpi"><span>Nº vendas</span><strong>{kpis.hoje.qtd}</strong></div>
-        <div className="kpi"><span>Ticket médio</span><strong>R$ {kpis.ticketMedio.toFixed(2)}</strong></div>
-        <div className={`kpi ${caixa.aberto ? "ok" : "off"}`}>
-          <span>Caixa {caixa.aberto ? "aberto" : "fechado"}</span>
-          <strong>R$ {Number(caixa.saldo || 0).toFixed(2)}</strong>
-        </div>
+      {/* barra de modos */}
+      <div className="pdv2-modos">
+        {MODOS.map((m) => (
+          <button key={m.id} className={`modo-btn ${modo === m.id ? "ativo" : ""}`} onClick={() => setModo(m.id)}>
+            {m.icon} {m.label}
+          </button>
+        ))}
+        {!caixaAberto && <span className="pdv2-caixa-aviso">⚠️ Caixa fechado — abra com F7</span>}
       </div>
 
-      <div className="pdv2-grid">
-        {/* coluna central: categorias + produtos */}
+      <div className={`pdv2-grid ${modo === "mercado" ? "modo-mercado" : "modo-loja"}`}>
         <div className="pdv2-center">
-          <div className="pdv2-cats">
-            <button className={`cat-btn ${!catAtiva ? "ativo" : ""}`} onClick={() => setCatAtiva(null)}>Todos</button>
-            {categorias.map((c) => (
-              <button key={c.id} className={`cat-btn ${catAtiva == c.id ? "ativo" : ""}`}
-                style={catAtiva == c.id ? { background: c.cor, borderColor: c.cor, color: "#fff" } : { borderColor: c.cor }}
-                onClick={() => setCatAtiva(c.id)}>{c.icone} {c.nome}</button>
-            ))}
-          </div>
+          {/* MODO MERCADO: busca gigante + lista compacta */}
+          {modo === "mercado" && (
+            <>
+              <div className="pdv2-busca grande">
+                <input ref={buscaRef} autoFocus placeholder="🔍 Código de barras ou nome — Enter adiciona (F3)"
+                  value={busca} onChange={(e) => setBusca(e.target.value)} onKeyDown={onBuscaKeyDown} />
+              </div>
+              <div className="pdv2-lista">
+                {produtos.length === 0 ? (
+                  <div className="vazio"><p>Nenhum produto</p></div>
+                ) : produtos.map((p) => {
+                  const sem = Number(p.estoque_atual) <= 0;
+                  return (
+                    <button key={p.id} className={`lista-item ${sem ? "sem-estoque" : ""}`} disabled={sem} onClick={() => adicionar(p)}>
+                      <span className="li-cod">{p.codigo}</span>
+                      <span className="li-nome">{p.nome.substring(0, 50)}</span>
+                      <span className="li-est">{Number(p.estoque_atual)} un</span>
+                      <span className="li-preco">R$ {Number(p.preco_venda).toFixed(2)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
-          <div className="pdv2-busca">
-            <input ref={buscaRef} autoFocus placeholder="🔍 Buscar produto ou código de barras… (F3)"
-              value={busca} onChange={(e) => setBusca(e.target.value)} />
-          </div>
-
-          <div className="pdv2-produtos">
-            {produtos.length === 0 ? (
-              <div className="vazio"><div className="vazio-icon">📦</div><p>Nenhum produto encontrado</p></div>
-            ) : produtos.map((p) => {
-              const semEstoque = Number(p.estoque_atual) <= 0;
-              return (
-                <button key={p.id} className={`prod-card ${semEstoque ? "sem-estoque" : ""}`}
-                  onClick={() => !semEstoque && adicionar(p)} disabled={semEstoque}>
-                  <span className={`prod-badge ${Number(p.estoque_atual) <= Number(p.estoque_minimo) ? "baixo" : ""}`}>
-                    {Number(p.estoque_atual)}
-                  </span>
-                  <span className="prod-nome">{p.nome.substring(0, 40)}</span>
-                  <span className="prod-cod">Cód {p.codigo}</span>
-                  <span className="prod-preco">R$ {Number(p.preco_venda).toFixed(2)}</span>
-                </button>
-              );
-            })}
-          </div>
+          {/* MODO LOJA: categorias + cards compactos */}
+          {modo === "loja" && (
+            <>
+              <div className="pdv2-cats">
+                <button className={`cat-btn ${!catAtiva ? "ativo" : ""}`} onClick={() => setCatAtiva(null)}>Todos</button>
+                {categorias.map((c) => (
+                  <button key={c.id} className={`cat-btn ${catAtiva == c.id ? "ativo" : ""}`}
+                    style={catAtiva == c.id ? { background: c.cor, borderColor: c.cor, color: "#fff" } : { borderColor: c.cor }}
+                    onClick={() => setCatAtiva(c.id)}>{c.icone} {c.nome}</button>
+                ))}
+              </div>
+              <div className="pdv2-busca">
+                <input ref={buscaRef} placeholder="🔍 Buscar produto (F3)" value={busca} onChange={(e) => setBusca(e.target.value)} />
+              </div>
+              <div className="pdv2-produtos">
+                {produtos.length === 0 ? (
+                  <div className="vazio"><p>Nenhum produto</p></div>
+                ) : produtos.map((p) => {
+                  const sem = Number(p.estoque_atual) <= 0;
+                  return (
+                    <button key={p.id} className={`prod-card ${sem ? "sem-estoque" : ""}`} disabled={sem} onClick={() => adicionar(p)}>
+                      <span className={`prod-badge ${Number(p.estoque_atual) <= Number(p.estoque_minimo) ? "baixo" : ""}`}>{Number(p.estoque_atual)}</span>
+                      <span className="prod-nome">{p.nome.substring(0, 34)}</span>
+                      <span className="prod-cod">{p.codigo}</span>
+                      <span className="prod-preco">R$ {Number(p.preco_venda).toFixed(2)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
 
-        {/* coluna direita: carrinho */}
-        <aside className="pdv2-cart">
-          <div className="cart-head">
-            <h3>🛒 Carrinho</h3>
-            <span className="cart-count">{carrinho.length}</span>
-          </div>
-
-          <div className="cart-cliente">
-            <label>Cliente (opcional) <kbd>F2</kbd></label>
-            <select id="pdv-cliente" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-              <option value="">Consumidor final</option>
-              {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
-          </div>
-
-          <div className="cart-itens">
-            {carrinho.length === 0 ? (
-              <div className="cart-vazio">Nenhum item — clique nos produtos</div>
-            ) : carrinho.map((i) => (
-              <div key={i.produtoId} className="cart-item">
-                <div className="ci-nome">{i.nome.substring(0, 22)}<small>R$ {i.precoUnitario.toFixed(2)}</small></div>
-                <input className="ci-qtd" type="number" min="1" value={i.quantidade}
-                  onChange={(e) => alterarQtd(i.produtoId, Number(e.target.value))} />
-                <div className="ci-sub">R$ {(i.quantidade * i.precoUnitario).toFixed(2)}</div>
-                <button className="ci-x" onClick={() => remover(i.produtoId)}>✕</button>
-              </div>
-            ))}
-          </div>
-
-          {erro && <div className="cart-erro">⚠️ {erro}</div>}
-
-          <div className="cart-foot">
-            <div className="cart-linha"><span>Subtotal</span><b>R$ {subtotal.toFixed(2)}</b></div>
-            <div className="cart-linha desconto">
-              <span>Desconto <kbd>F4</kbd></span>
-              <input id="pdv-desconto" type="number" min="0" value={descontoTotal}
-                onChange={(e) => setDescontoTotal(e.target.value)} />
-            </div>
-            <div className="cart-total"><span>TOTAL</span><strong>R$ {total.toFixed(2)}</strong></div>
-
-            <select className="cart-pgto" value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)}>
-              <option value="DINHEIRO">💵 Dinheiro</option>
-              <option value="DEBITO">🏧 Débito</option>
-              <option value="CREDITO">💳 Crédito</option>
-              <option value="PIX">📱 PIX</option>
-              <option value="CREDIARIO">📋 Crediário</option>
-            </select>
-
-            <button className="cart-finalizar" onClick={finalizar} disabled={carrinho.length === 0}>
-              ✓ FINALIZAR VENDA <kbd>F5</kbd>
-            </button>
-          </div>
-        </aside>
+        {Carrinho}
       </div>
 
-      {vendaOk && (
-        <div className="venda-toast">✓ Venda #{vendaOk.id} finalizada — R$ {vendaOk.total.toFixed(2)}</div>
-      )}
+      {vendaOk && <div className="venda-toast">✓ Venda #{vendaOk.id} finalizada — R$ {vendaOk.total.toFixed(2)}</div>}
     </div>
   );
 }
