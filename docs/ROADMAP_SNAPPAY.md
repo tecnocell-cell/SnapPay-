@@ -13,26 +13,29 @@
 
 ## 2. Roadmap por fases
 
-### 🟦 Fase 0 — Fundação (P0)
+### 🟦 Fase 0 — Fundação (P0) — ✅ CONCLUÍDA
 Transformar protótipo em produto multiusuário e seguro.
-- [ ] Auth (login, JWT, refresh)
-- [ ] Multiempresa (`empresa_id` em todas as tabelas)
-- [ ] Usuários + Permissões (RBAC: admin/gerente/operador)
-- [ ] Lojas/unidades
-- [ ] Auditoria/logs
-- [ ] Engine de módulos ativáveis (`modulos`, `empresa_modulos`, ModuleGate/RoleGate no front)
-- **Entregável:** sistema com login, empresas, papéis e módulos ligáveis.
+- [x] Auth (login, JWT) — *refresh token fica para depois*
+- [x] Multiempresa (`empresa_id` nas tabelas)
+- [x] Usuários + Permissões (RBAC: admin/gerente/operador, 13 permissões)
+- [x] Lojas/unidades (schema + escopo) — *UI de gestão pendente*
+- [ ] Auditoria/logs — **pendente (movido p/ Fase 2)**
+- [x] Engine de módulos ativáveis (`modulos`, `empresa_modulos`, ModuleGate/RoleGate, página Módulos)
+- **Entregável:** ✅ sistema com login, empresas, papéis e módulos ligáveis.
 
-### 🟩 Fase 1 — PDV profissional (P0)
-- [ ] Categorias de produto
-- [ ] Novo layout do PDV (seção 3) — grade visível + categorias + carrinho destacado
-- [ ] Caixa (abertura/fechamento)
-- [ ] Sangria (F9) e Suprimento (F10)
-- [ ] Desconto (item/total) no PDV
-- [ ] Atalhos de teclado F2–F10 + ESC
-- [ ] Status do caixa + dashboard no topo do PDV (vendas dia, ticket, últimas vendas)
-- [ ] Validação de estoque na venda
-- **Entregável:** frente de caixa competitiva com EasySAC.
+### 🟩 Fase 1 — PDV profissional (P0) — ✅ BASE CONCLUÍDA
+- [x] Categorias de produto (CRUD + vínculo ao produto)
+- [x] Novo layout do PDV — produtos visíveis + categorias + carrinho destacado
+- [x] Modos de visualização: **Mercado** (busca/código de barras + lista) e **Loja** (cards)
+- [x] Caixa (abertura/fechamento)
+- [x] Sangria (F9) e Suprimento (F10)
+- [x] Desconto (total) no PDV
+- [x] Atalhos de teclado F2–F10 + ESC
+- [x] Validação de estoque na venda (bloqueia negativo, HTTP 409)
+- [x] Indicadores movidos para Relatórios (PDV mais limpo)
+- [ ] Devolução/troca no PDV — pendente
+- [ ] Múltiplas formas de pagamento + split — pendente
+- **Entregável:** ✅ frente de caixa enxuta e funcional.
 
 ### 🟨 Fase 2 — Gestão (P1)
 - [ ] Fornecedores + Compras (entrada de mercadoria)
