@@ -156,8 +156,11 @@ router.put("/:id/receber", requireAuth, requirePermissao("compras.gerenciar"), a
     try {
       await client.query("BEGIN");
 
+      // FOR UPDATE: serializa recebimentos concorrentes da MESMA compra.
+      // Sem isso, dois cliques/requisições simultâneos liam status='PENDENTE'
+      // antes do COMMIT e duplicavam estoque + conta a pagar.
       const compra = await client.query(
-        `SELECT * FROM compras WHERE id = $1 AND empresa_id = $2`,
+        `SELECT * FROM compras WHERE id = $1 AND empresa_id = $2 FOR UPDATE`,
         [req.params.id, eid]
       );
       if (compra.rowCount === 0) throw { status: 404, msg: "Compra não encontrada" };

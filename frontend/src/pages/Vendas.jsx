@@ -31,8 +31,8 @@ export default function Vendas() {
     }
     try {
       await api.post(`/vendas/${vendaId}/devolver`, {
-        produto_id: item.produto_id,
-        quantidade: qtdDevolucao
+        itens: [{ produto_id: item.produto_id, quantidade: qtdDevolucao }],
+        motivo: "Devolução pelo PDV"
       });
       setDevolucaoModal(false);
       setItemDevolucao(null);

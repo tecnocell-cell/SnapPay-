@@ -194,16 +194,25 @@ app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async 
       [req.params.id]
     );
     if (notaAtiva.rowCount > 0) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Venda possui NFC-e autorizada. Cancele a nota fiscal antes de cancelar a venda." }); }
-    // devolve estoque
+    // devolve estoque — apenas a quantidade AINDA NÃO devolvida por devoluções
+    // parciais anteriores (senão o estoque seria estornado em dobro).
     const itens = await client.query("SELECT produto_id, quantidade FROM venda_itens WHERE venda_id = $1", [req.params.id]);
     for (const it of itens.rows) {
+      const jaDevQ = await client.query(
+        `SELECT COALESCE(SUM(di.quantidade),0) AS q FROM devolucao_itens di
+         JOIN devolucoes d ON d.id = di.devolucao_id
+         WHERE d.venda_id = $1 AND di.produto_id = $2`,
+        [req.params.id, it.produto_id]
+      );
+      const retornar = Number(it.quantidade) - Number(jaDevQ.rows[0].q);
+      if (retornar <= 0) continue; // tudo já devolvido: nada a estornar
       const antes = await client.query("SELECT estoque_atual FROM produtos WHERE id = $1", [it.produto_id]);
       const saldoAntes = Number(antes.rows[0].estoque_atual);
-      await client.query("UPDATE produtos SET estoque_atual = estoque_atual + $1 WHERE id = $2", [it.quantidade, it.produto_id]);
+      await client.query("UPDATE produtos SET estoque_atual = estoque_atual + $1 WHERE id = $2", [retornar, it.produto_id]);
       await client.query(
         `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id)
          VALUES ($1, 'CANCELAMENTO_VENDA', $2, $3, $4, $5, $6, $7, 'VENDA', $8)`,
-        [it.produto_id, it.quantidade, `Estorno venda #${req.params.id}`, eid, req.usuario.id, saldoAntes, saldoAntes + Number(it.quantidade), req.params.id]
+        [it.produto_id, retornar, `Estorno venda #${req.params.id}`, eid, req.usuario.id, saldoAntes, saldoAntes + retornar, req.params.id]
       );
     }
     await client.query("UPDATE vendas SET status = 'CANCELADA' WHERE id = $1", [req.params.id]);
