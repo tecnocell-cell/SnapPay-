@@ -155,12 +155,22 @@ export default function Inventario() {
                 <select value={contagem.produto_id} onChange={(e) => setContagem({ ...contagem, produto_id: e.target.value })}>
                   <option value="">Selecione o produto</option>
                   {produtos.map((p) => (
-                    <option key={p.id} value={p.id}>[{p.codigo}] {p.nome} (sistema: {Number(p.estoque_atual)})</option>
+                    <option key={p.id} value={p.id}>[{p.codigo}] {p.nome} (sis: {Number(p.estoque_atual)})</option>
                   ))}
                 </select>
-                <input type="number" step="0.001" placeholder="Qtd contada" value={contagem.quantidade_contada}
-                  onChange={(e) => setContagem({ ...contagem, quantidade_contada: e.target.value })} />
-                <button className="btn-mini ok" type="submit">Lançar</button>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0.001"
+                    placeholder="Qtd"
+                    value={contagem.quantidade_contada}
+                    onChange={(e) => setContagem({ ...contagem, quantidade_contada: e.target.value })}
+                    style={{ flex: 1, padding: "8px", border: "1px solid #cbd5e1", borderRadius: 6, fontSize: 13 }}
+                  />
+                  <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>un</span>
+                </div>
+                <button className="btn-mini ok" type="submit">✓</button>
               </form>
             )}
 
