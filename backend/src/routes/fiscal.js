@@ -238,6 +238,106 @@ router.get("/notas/:id/danfe", requireAuth, requirePermissao("fiscal.emitir"), a
   }
 });
 
+// ---------- M5: FISCAL OFFLINE PENDENTE ----------
+
+// GET /api/fiscal/pendentes — lista notas em CONTINGENCIA e eventos fiscais pendentes
+router.get("/pendentes", requireAuth, requirePermissao("fiscal.emitir"), async (req, res) => {
+  try {
+    const eid = empresaId(req);
+    const contingencia = await query(
+      "SELECT id, venda_id, numero, serie, status, motivo_rejeicao FROM fiscal_notas WHERE empresa_id = $1 AND status IN ('CONTINGENCIA','CONTINGENCIA_PENDENTE') ORDER BY criado_em DESC",
+      [eid]
+    );
+    const eventos = await query(
+      "SELECT id, nota_id, tipo, status, descricao, tentativas, ultima_tentativa FROM eventos_fiscais_pendentes WHERE empresa_id = $1 AND status = 'PENDENTE' ORDER BY criado_em DESC",
+      [eid]
+    );
+    res.json({ contingencia: contingencia.rows, eventos_devolucao: eventos.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/fiscal/reprocessar/:notaId — tenta emitir nota em CONTINGENCIA novamente quando online
+router.post("/reprocessar/:notaId", requireAuth, requirePermissao("fiscal.emitir"), async (req, res) => {
+  const eid = empresaId(req);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const notaQ = await client.query("SELECT * FROM fiscal_notas WHERE id = $1 AND empresa_id = $2", [req.params.notaId, eid]);
+    if (!notaQ.rowCount) return res.status(404).json({ error: "Nota não encontrada" });
+    const nota = notaQ.rows[0];
+    if (!["CONTINGENCIA", "CONTINGENCIA_PENDENTE"].includes(nota.status)) {
+      return res.status(400).json({ error: "Nota deve estar em CONTINGENCIA ou CONTINGENCIA_PENDENTE para reprocessar" });
+    }
+
+    const vendaQ = await client.query("SELECT * FROM vendas WHERE id = $1", [nota.venda_id]);
+    const itensQ = await client.query(
+      "SELECT vi.*, p.nome FROM venda_itens vi JOIN produtos p ON p.id = vi.produto_id WHERE vi.venda_id = $1",
+      [nota.venda_id]
+    );
+    const cfgQ = await client.query("SELECT * FROM fiscal_configuracoes WHERE empresa_id = $1", [eid]);
+    const cfg = cfgQ.rowCount ? cfgQ.rows[0] : { provider: "MOCK", ambiente: "HOMOLOGACAO" };
+
+    // Tenta emitir novamente
+    const provider = getProvider(cfg);
+    const r = await provider.emitirNFCe({
+      config: cfg,
+      venda: vendaQ.rows[0],
+      itens: itensQ.rows,
+      simular: false,
+      ja_contingencia: true
+    });
+
+    if (r.ok && ["AUTORIZADA", "CONTINGENCIA"].includes(r.status)) {
+      await client.query(
+        "UPDATE fiscal_notas SET status=$1, protocolo=$2, autorizada_em=NOW() WHERE id=$3",
+        [r.status, r.protocolo || null, nota.id]
+      );
+      await registrarEvento(client, nota.id, eid, "REPROCESSAMENTO", r.status, `Reprocessada com sucesso → ${r.status}`, r.payload);
+    } else {
+      // Incrementar tentativas, manter status
+      await client.query(
+        "UPDATE eventos_fiscais_pendentes SET tentativas = tentativas + 1, ultima_tentativa = NOW() WHERE nota_id = $1",
+        [nota.id]
+      );
+      await registrarEvento(client, nota.id, eid, "REPROCESSAMENTO", "ERRO", r.motivo || "Falha na reemissão", r.payload);
+      await client.query("COMMIT");
+      return res.status(400).json({ error: r.motivo || "Falha ao reprocessar", tentativas: true });
+    }
+
+    await client.query("COMMIT");
+    const final = await query("SELECT * FROM fiscal_notas WHERE id = $1", [nota.id]);
+    await registrarAuditoria(req.usuario.id, eid, "FISCAL", "fiscal_notas", nota.id, `Reprocessou nota ${nota.numero} → ${final.rows[0].status}`, null, null);
+    res.json(final.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+    res.status(500).json({ error: err.message || "Erro ao reprocessar" });
+  } finally {
+    client.release();
+  }
+});
+
+// PUT /api/fiscal/eventos/:eventoId/autorizar — marca evento fiscal como autorizado
+router.put("/eventos/:eventoId/autorizar", requireAuth, requirePermissao("fiscal.emitir"), async (req, res) => {
+  try {
+    const eid = empresaId(req);
+    const eventoQ = await query("SELECT * FROM eventos_fiscais_pendentes WHERE id = $1 AND empresa_id = $2", [req.params.eventoId, eid]);
+    if (!eventoQ.rowCount) return res.status(404).json({ error: "Evento não encontrado" });
+    const evento = eventoQ.rows[0];
+
+    await query("UPDATE eventos_fiscais_pendentes SET status='AUTORIZADO' WHERE id=$1", [req.params.eventoId]);
+    if (evento.nota_id) {
+      await registrarEvento(pool, evento.nota_id, eid, "EVENTO_AUTORIZADO", "AUTORIZADO", "Evento de devolução autorizado manualmente", {});
+    }
+    await registrarAuditoria(req.usuario.id, eid, "FISCAL", "eventos_fiscais_pendentes", evento.id, `Autorizou evento ${evento.tipo}`, null, null);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Inutiliza faixa de numeração.
 router.post("/inutilizar", requireAuth, requirePermissao("fiscal.cancelar"), async (req, res) => {
   try {

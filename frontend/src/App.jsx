@@ -29,6 +29,7 @@ import TerminaisPDV from "./pages/TerminaisPDV";
 import TabelasPreco from "./pages/TabelasPreco";
 import Promocoes from "./pages/Promocoes";
 import Lojas from "./pages/Lojas";
+import TerminalSetup from "./pages/TerminalSetup";
 import { observarConexao } from "./lib/offline";
 
 const PAGINAS = {
@@ -70,14 +71,36 @@ export default function App() {
   const [pagina, setPagina] = useState("pdv");
   const [menuAberto, setMenuAberto] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
+  const [modoTerminal, setModoTerminal] = useState(false);
 
   useEffect(() => observarConexao(setOnline), []);
 
+  // Detect terminal mode
+  useEffect(() => {
+    const deviceId = localStorage.getItem("device_id");
+    if (deviceId) {
+      const headers = { "X-Device-ID": deviceId };
+      fetch("http://localhost:3001/api/terminal", { headers })
+        .then((r) => r.json())
+        .then((data) => setModoTerminal(data.ativo && data.modo_terminal))
+        .catch(() => setModoTerminal(false));
+    }
+  }, []);
+
   if (carregando) return <div className="splash">💳 SnapPay — carregando…</div>;
-  if (!usuario) return <Login />;
+  if (!usuario) {
+    // Se device_id existe mas não foi ativado, mostrar TerminalSetup
+    if (localStorage.getItem("device_id")) return <TerminalSetup />;
+    return <Login />;
+  }
 
   // itens do menu: módulo ativo + permissão (quando exigida)
-  const itens = REGISTRY.filter((m) => isAtivo(m.modulo) && (!m.perm || can(m.perm)));
+  // Em modo terminal, esconder itens administrativos
+  let itens = REGISTRY.filter((m) => isAtivo(m.modulo) && (!m.perm || can(m.perm)));
+  if (modoTerminal) {
+    // Permitir só: PDV, Caixa, Vendas, Clientes
+    itens = itens.filter((m) => ["pdv", "caixa", "vendas", "clientes"].includes(m.id));
+  }
   const atual = PAGINAS[pagina] || PAGINAS.pdv;
 
   return (

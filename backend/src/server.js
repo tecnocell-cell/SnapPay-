@@ -23,6 +23,7 @@ import syncRoutes from "./routes/sync.js";
 import precosRoutes from "./routes/precos.js";
 import promocoesRoutes from "./routes/promocoes.js";
 import unidadesRoutes from "./routes/unidades.js";
+import terminalRoutes from "./routes/terminal.js";
 
 const app = express();
 app.use(cors());
@@ -64,6 +65,9 @@ app.use("/api/sync", syncRoutes);
 app.use("/api/precos", precosRoutes);
 app.use("/api/promocoes", promocoesRoutes);
 app.use("/api/unidades", unidadesRoutes);
+
+// Fase 8 — Terminal PDV
+app.use("/api/terminal", terminalRoutes);
 
 // ----------------------------------------------------------------------------
 // VENDAS
@@ -387,6 +391,23 @@ app.post("/api/vendas/:id/devolver", requirePermissao("vendas.cancelar"), async 
     const clienteId = req.body.cliente_id || venda.rows[0].cliente_id || null;
     if (tipoReembolso === "CREDITO_LOJA" && !clienteId) throw { status: 400, msg: "Crédito de loja exige um cliente identificado na venda" };
 
+    // M4: Checar se venda tem NFC-e AUTORIZADA — devolução parcial exige evento fiscal
+    const notaFiscal = await client.query(
+      "SELECT id, status FROM fiscal_notas WHERE venda_id=$1 AND status='AUTORIZADA'",
+      [req.params.id]
+    );
+    let eventoFiscalPendente = false;
+    if (notaFiscal.rowCount > 0) {
+      // Venda tem NFC-e autorizada — marcar devolução como pendente de evento fiscal
+      eventoFiscalPendente = true;
+      // Registrar evento pendente
+      await client.query(
+        `INSERT INTO eventos_fiscais_pendentes (empresa_id, nota_id, tipo, descricao, dados, status)
+         VALUES ($1, $2, 'DEVOLUCAO', $3, $4, 'PENDENTE')`,
+        [eid, notaFiscal.rows[0].id, `Devolução parcial de venda #${req.params.id}`, JSON.stringify({ venda_id: req.params.id, itens })]
+      );
+    }
+
     const devQ = await client.query(
       "INSERT INTO devolucoes (empresa_id, venda_id, usuario_id, motivo, tipo_reembolso, cliente_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
       [eid, req.params.id, req.usuario.id, motivo || null, tipoReembolso, clienteId]
@@ -455,8 +476,8 @@ app.post("/api/vendas/:id/devolver", requirePermissao("vendas.cancelar"), async 
     // (C) NENHUM: nenhum lançamento financeiro (só estoque/kardex).
 
     await client.query("COMMIT");
-    await registrarAuditoria(req.usuario.id, eid, "DEVOLUCAO", "devolucoes", devId, `Devolução da venda #${req.params.id} (R$ ${valorTotal.toFixed(2)}) — reembolso: ${tipoReembolso}`, null, { itens, motivo, tipo_reembolso: tipoReembolso, cliente_id: clienteId });
-    res.status(201).json({ id: devId, venda_id: Number(req.params.id), valor_total: valorTotal, tipo_reembolso: tipoReembolso });
+    await registrarAuditoria(req.usuario.id, eid, "DEVOLUCAO", "devolucoes", devId, `Devolução da venda #${req.params.id} (R$ ${valorTotal.toFixed(2)}) — reembolso: ${tipoReembolso}${eventoFiscalPendente ? ' (evento fiscal pendente)' : ''}`, null, { itens, motivo, tipo_reembolso: tipoReembolso, cliente_id: clienteId, evento_fiscal_pendente: eventoFiscalPendente });
+    res.status(201).json({ id: devId, venda_id: Number(req.params.id), valor_total: valorTotal, tipo_reembolso: tipoReembolso, evento_fiscal_pendente: eventoFiscalPendente });
   } catch (err) {
     await client.query("ROLLBACK");
     if (err.status) return res.status(err.status).json({ error: err.msg });

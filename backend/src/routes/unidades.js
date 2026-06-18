@@ -96,24 +96,39 @@ router.post("/transferir", requireAuth, requirePermissao("estoque.editar"), asyn
       const saldoOrigem = origemQ.rowCount ? Number(origemQ.rows[0].quantidade) : 0;
       if (saldoOrigem < q) throw { status: 400, msg: `Estoque insuficiente na origem para produto ${it.produto_id} (tem ${saldoOrigem})` };
 
-      // baixa origem
+      // baixa origem (registra saldo_anterior)
+      const saldoAnterior = saldoOrigem;
+      const saldoPosteriorOrigem = saldoAnterior - q;
       await client.query(
         `INSERT INTO estoque_unidade (empresa_id, unidade_id, produto_id, quantidade) VALUES ($1,$2,$3,$4)
          ON CONFLICT (unidade_id, produto_id) DO UPDATE SET quantidade = estoque_unidade.quantidade - $4`,
         [eid, origem, it.produto_id, q]
       );
+
       // entra destino
+      const destinoQ = await client.query("SELECT quantidade FROM estoque_unidade WHERE unidade_id=$1 AND produto_id=$2", [destino, it.produto_id]);
+      const saldoDestinoAnterior = destinoQ.rowCount ? Number(destinoQ.rows[0].quantidade) : 0;
+      const saldoDestinoPosterior = saldoDestinoAnterior + q;
       await client.query(
         `INSERT INTO estoque_unidade (empresa_id, unidade_id, produto_id, quantidade) VALUES ($1,$2,$3,$4)
          ON CONFLICT (unidade_id, produto_id) DO UPDATE SET quantidade = estoque_unidade.quantidade + $4`,
         [eid, destino, it.produto_id, q]
       );
+
       await client.query("INSERT INTO transferencia_itens (transferencia_id, produto_id, quantidade) VALUES ($1,$2,$3)", [transfId, it.produto_id, q]);
-      // kardex (documental, por unidade)
+
+      // kardex na origem (saída)
       await client.query(
-        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, origem, origem_id)
-         VALUES ($1,'TRANSFERENCIA',$2,$3,$4,$5,'TRANSFERENCIA',$6)`,
-        [it.produto_id, q, `Transferência loja ${origem}→${destino}`, eid, req.usuario.id, transfId]
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, origem, origem_id, unidade_id, saldo_anterior, saldo_posterior)
+         VALUES ($1,'TRANSFERENCIA',$2,$3,$4,$5,'TRANSFERENCIA',$6,$7,$8,$9)`,
+        [it.produto_id, q, `Transferência → loja ${destino}`, eid, req.usuario.id, transfId, origem, saldoAnterior, saldoPosteriorOrigem]
+      );
+
+      // kardex no destino (entrada)
+      await client.query(
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, origem, origem_id, unidade_id, saldo_anterior, saldo_posterior)
+         VALUES ($1,'TRANSFERENCIA',$2,$3,$4,$5,'TRANSFERENCIA',$6,$7,$8,$9)`,
+        [it.produto_id, q, `Transferência ← loja ${origem}`, eid, req.usuario.id, transfId, destino, saldoDestinoAnterior, saldoDestinoPosterior]
       );
     }
 
