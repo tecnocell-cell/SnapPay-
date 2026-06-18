@@ -108,6 +108,25 @@ router.post("/tabelas/:id/itens", requireAuth, requirePermissao("produtos.editar
   res.status(201).json(r.rows[0]);
 });
 
+// PUT /api/precos/tabelas/:id — editar tabela
+router.put("/tabelas/:id", requireAuth, requirePermissao("produtos.editar"), async (req, res) => {
+  const eid = empresaId(req);
+  const { nome, tipo, padrao } = req.body;
+  if (padrao) await query("UPDATE tabelas_preco SET padrao=FALSE WHERE empresa_id=$1", [eid]);
+  const r = await query(
+    "UPDATE tabelas_preco SET nome=COALESCE($1,nome), tipo=COALESCE($2,tipo), padrao=COALESCE($3,padrao) WHERE id=$4 AND empresa_id=$5 RETURNING *",
+    [nome ?? null, tipo ?? null, padrao ?? null, req.params.id, eid]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "Tabela não encontrada" });
+  res.json(r.rows[0]);
+});
+
+// DELETE /api/precos/tabelas/:id — inativar tabela
+router.delete("/tabelas/:id", requireAuth, requirePermissao("produtos.editar"), async (req, res) => {
+  await query("UPDATE tabelas_preco SET ativo=FALSE, padrao=FALSE WHERE id=$1 AND empresa_id=$2", [req.params.id, empresaId(req)]);
+  res.json({ ok: true });
+});
+
 // GET /api/precos/resolver — resolve o preço aplicável
 // query: produto_id, quantidade, [tabela_id | cliente_id]
 // Regra: usa a tabela do cliente (ou a informada, ou a padrão); dentro dela,

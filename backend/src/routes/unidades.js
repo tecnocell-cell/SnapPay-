@@ -21,6 +21,32 @@ router.post("/", requireAuth, requirePermissao("config.editar"), async (req, res
   res.status(201).json(r.rows[0]);
 });
 
+// PUT /api/unidades/:id — editar loja
+router.put("/:id", requireAuth, requirePermissao("config.editar"), async (req, res) => {
+  const { nome, codigo, ativo } = req.body;
+  const r = await query(
+    "UPDATE unidades SET nome=COALESCE($1,nome), codigo=COALESCE($2,codigo), ativo=COALESCE($3,ativo) WHERE id=$4 AND empresa_id=$5 RETURNING *",
+    [nome ?? null, codigo ?? null, ativo ?? null, req.params.id, empresaId(req)]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "Loja não encontrada" });
+  res.json(r.rows[0]);
+});
+
+// GET /api/unidades/transferencias — histórico de transferências
+router.get("/transferencias/historico", requireAuth, async (req, res) => {
+  const r = await query(
+    `SELECT t.id, t.criado_em, t.observacao, t.status,
+            uo.nome AS origem_nome, ud.nome AS destino_nome,
+            (SELECT COALESCE(SUM(quantidade),0) FROM transferencia_itens ti WHERE ti.transferencia_id=t.id) AS total_itens
+     FROM transferencias t
+     JOIN unidades uo ON uo.id=t.unidade_origem
+     JOIN unidades ud ON ud.id=t.unidade_destino
+     WHERE t.empresa_id=$1 ORDER BY t.criado_em DESC LIMIT 50`,
+    [empresaId(req)]
+  );
+  res.json(r.rows);
+});
+
 // GET /api/unidades/:id/estoque — estoque da loja
 router.get("/:id/estoque", requireAuth, async (req, res) => {
   const r = await query(

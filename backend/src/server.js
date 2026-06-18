@@ -94,7 +94,9 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
     const caixaId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].id : null;
     const unidadeId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].unidade_id : null;
 
-    // Carrega+bloqueia produtos (FOR UPDATE) e valida estoque global E por unidade.
+    // Carrega+bloqueia produtos (FOR UPDATE) e valida estoque.
+    // C1 — quando o caixa tem loja E o produto tem saldo por loja (estoque_unidade),
+    // a loja é a restrição; senão valida o consolidado (produtos.estoque_atual).
     const prodCache = {};
     for (const item of itens) {
       const prod = await client.query(
@@ -102,17 +104,21 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
         [item.produtoId, eid]
       );
       if (prod.rowCount === 0) throw { status: 400, msg: "Produto inexistente" };
-      if (Number(prod.rows[0].estoque_atual) < Number(item.quantidade)) {
-        throw { status: 409, msg: `Estoque insuficiente para "${prod.rows[0].nome}" (disponível: ${Number(prod.rows[0].estoque_atual)})` };
-      }
+      let validadoPorLoja = false;
       if (unidadeId) {
         const eu = await client.query(
-          "SELECT quantidade FROM estoque_unidade WHERE unidade_id=$1 AND produto_id=$2 FOR UPDATE", [unidadeId, item.produtoId]
+          "SELECT quantidade FROM estoque_unidade WHERE unidade_id=$1 AND produto_id=$2 FOR UPDATE",
+          [unidadeId, item.produtoId]
         );
-        const saldoUn = eu.rowCount ? Number(eu.rows[0].quantidade) : 0;
-        if (saldoUn < Number(item.quantidade)) {
-          throw { status: 409, msg: `Estoque insuficiente na unidade para "${prod.rows[0].nome}" (disponível: ${saldoUn})` };
+        if (eu.rowCount > 0) {
+          validadoPorLoja = true;
+          if (Number(eu.rows[0].quantidade) < Number(item.quantidade)) {
+            throw { status: 409, msg: `Estoque insuficiente na loja para "${prod.rows[0].nome}" (disponível: ${Number(eu.rows[0].quantidade)})` };
+          }
         }
+      }
+      if (!validadoPorLoja && Number(prod.rows[0].estoque_atual) < Number(item.quantidade)) {
+        throw { status: 409, msg: `Estoque insuficiente para "${prod.rows[0].nome}" (disponível: ${Number(prod.rows[0].estoque_atual)})` };
       }
       prodCache[item.produtoId] = prod.rows[0];
     }
@@ -156,7 +162,7 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
         "UPDATE produtos SET estoque_atual = estoque_atual - $1 WHERE id = $2",
         [item.quantidade, item.produtoId]
       );
-      // C1 — Estoque da UNIDADE do caixa também baixa (multi-loja).
+      // C1 — Estoque da UNIDADE do caixa também baixa (no-op se o produto não é controlado por loja).
       if (unidadeId) {
         await client.query(
           "UPDATE estoque_unidade SET quantidade = quantidade - $1 WHERE unidade_id=$2 AND produto_id=$3",

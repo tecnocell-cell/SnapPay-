@@ -26,6 +26,9 @@ import Inventario from "./pages/Inventario";
 import FiscalConfig from "./pages/FiscalConfig";
 import NotasFiscais from "./pages/NotasFiscais";
 import TerminaisPDV from "./pages/TerminaisPDV";
+import TabelasPreco from "./pages/TabelasPreco";
+import Promocoes from "./pages/Promocoes";
+import Lojas from "./pages/Lojas";
 import { observarConexao } from "./lib/offline";
 
 const PAGINAS = {
@@ -50,6 +53,9 @@ const PAGINAS = {
   notasfiscais: { comp: <NotasFiscais />, modulo: "vendas" },
   fiscalconfig: { comp: <FiscalConfig />, modulo: "cadastro" },
   terminais: { comp: <TerminaisPDV />, modulo: "cadastro" },
+  tabelaspreco: { comp: <TabelasPreco />, modulo: "produtos" },
+  promocoes: { comp: <Promocoes />, modulo: "produtos" },
+  lojas: { comp: <Lojas />, modulo: "estoque" },
 };
 
 function Relogio() {

@@ -292,7 +292,7 @@ export default function PDV() {
           itens: carrinho.map((i) => ({
             produto_id: i.produtoId,
             quantidade: i.quantidade,
-            preco_unitario: i.precoUnitario,
+            preco_unitario: Number(precoItem(i)),
             desconto: desconto.final / carrinho.length,
           })),
           pagamentos: pagsPagamento,
@@ -322,7 +322,7 @@ export default function PDV() {
           produtoId: i.produtoId,
           quantidade: i.quantidade,
           precoUnitario: Number(precoItem(i)),
-          desconto: desconto.final / carrinho.length, // desconto MANUAL distribuído
+          desconto: desconto.final / carrinho.length, // desconto MANUAL distribuído (promo é do servidor)
         })),
         pagamentos: pagsPagamento,
         total_esperado: total,
@@ -554,7 +554,7 @@ export default function PDV() {
         </div>
         <div className="pdv2-status">
           {caixa?.aberto ? (
-            <span className="status-ok">🟢 Caixa aberto | R$ {Number(caixa.saldo).toFixed(2)}</span>
+            <span className="status-ok">🟢 Caixa aberto{caixa.unidade ? ` · 🏬 ${caixa.unidade.nome}` : ""} | R$ {Number(caixa.saldo).toFixed(2)}</span>
           ) : (
             <span className="status-erro" onClick={() => setModalCaixa(true)} style={{ cursor: "pointer" }}>
               🔴 Caixa fechado (F7 para abrir)

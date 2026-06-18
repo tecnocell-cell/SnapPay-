@@ -34,6 +34,16 @@ router.delete("/:id", requireAuth, requirePermissao("produtos.editar"), async (r
   res.json({ ok: true });
 });
 
+// PUT /api/promocoes/:id/ativo — ativa/inativa promoção
+router.put("/:id/ativo", requireAuth, requirePermissao("produtos.editar"), async (req, res) => {
+  const r = await query(
+    "UPDATE promocoes SET ativo=$1 WHERE id=$2 AND empresa_id=$3 RETURNING *",
+    [req.body.ativo !== false, req.params.id, empresaId(req)]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: "Promoção não encontrada" });
+  res.json(r.rows[0]);
+});
+
 // Motor: aplica as promoções vigentes a um carrinho. -------------------------
 // body: { itens: [{ produto_id, categoria_id, quantidade, preco_unitario }] }
 // retorna desconto por item + total, considerando data/hora/dia atuais.

@@ -30,14 +30,25 @@ router.get("/atual", requireAuth, async (req, res) => {
     `SELECT ${SQL_SALDO_DINHEIRO} AS saldo FROM caixa_movimentos WHERE caixa_id = $1`,
     [caixa.id]
   );
-  res.json({ aberto: true, caixa, saldo: Number(mov.rows[0].saldo) });
+  // nome da loja vinculada ao caixa (para o PDV exibir)
+  let unidade = null;
+  if (caixa.unidade_id) {
+    const u = await query("SELECT id, nome FROM unidades WHERE id=$1", [caixa.unidade_id]);
+    unidade = u.rows[0] || null;
+  }
+  res.json({ aberto: true, caixa, saldo: Number(mov.rows[0].saldo), unidade });
 });
 
 // POST /api/caixa/abrir
 router.post("/abrir", requireAuth, requirePermissao("caixa.operar"), async (req, res) => {
   const eid = empresaId(req);
   const valor = Number(req.body.valorAbertura || 0);
-  const unidadeId = req.body.unidade_id || null;
+  // unidade/loja do caixa: informada (unidade_id ou unidadeId) ou a matriz (menor id) da empresa
+  let unidadeId = req.body.unidade_id || (req.body.unidadeId ? Number(req.body.unidadeId) : null);
+  if (!unidadeId) {
+    const u = await query("SELECT MIN(id) AS id FROM unidades WHERE empresa_id=$1", [eid]);
+    unidadeId = u.rows[0]?.id || null;
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
