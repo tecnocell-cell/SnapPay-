@@ -266,6 +266,8 @@ export default function PDV() {
       const vendaCompleta = await api.get(`/vendas/${venda.id}`);
       setVendaAtual(vendaCompleta);
       setModalComprovante(true);
+      setAviso(`✅ Venda #${venda.id} finalizada com sucesso!`);
+      setTimeout(() => setAviso(""), 3000);
       limpar();
       carregarCaixa();
     } catch (err) {
@@ -305,23 +307,30 @@ export default function PDV() {
             key={i.produtoId}
             className={`cart-item ${itemSelecionado === i.produtoId ? "selecionado" : ""}`}
             onClick={() => setItemSelecionado(i.produtoId)}
+            style={{ display: "grid", gridTemplateColumns: "1fr 60px 80px 24px", gap: 6, alignItems: "center" }}
           >
             <div className="ci-nome">
               {i.nome.substring(0, 20)}
               <small>R$ {i.precoUnitario.toFixed(2)}</small>
             </div>
-            <input
-              className="ci-qtd"
-              type="number"
-              min="1"
-              value={i.quantidade}
-              onChange={(e) => alterarQtd(i.produtoId, Number(e.target.value))}
-              onClick={(e) => e.stopPropagation()}
-            />
-            <div className="ci-sub">R$ {(i.quantidade * i.precoUnitario).toFixed(2)}</div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+              <input
+                className="ci-qtd"
+                type="number"
+                min="1"
+                value={i.quantidade}
+                onChange={(e) => alterarQtd(i.produtoId, Number(e.target.value))}
+                onClick={(e) => e.stopPropagation()}
+                step="1"
+                style={{ textAlign: "center", fontWeight: 600 }}
+              />
+              <small style={{ fontSize: 9, color: "#94a3b8", fontWeight: 500 }}>Qtd</small>
+            </div>
+            <div className="ci-sub" style={{ textAlign: "right" }}>R$ {(i.quantidade * i.precoUnitario).toFixed(2)}</div>
             <button
               className="ci-x"
               onClick={() => remover(i.produtoId)}
+              style={{ padding: 4 }}
             >
               ✕
             </button>
@@ -348,32 +357,45 @@ export default function PDV() {
         </div>
       </div>
 
-      <div className="cart-acoes">
+      <div className="cart-acoes" style={{ gap: 6 }}>
         <button
           className="btn-mini"
           onClick={() => setModalDesconto(true)}
           title="Desconto (F4)"
+          style={{ flex: 1 }}
         >
           🏷️ Desconto
-        </button>
-        <button
-          className="btn-checkout"
-          onClick={() => carrinho.length > 0 ? setModalPagamento(true) : setErro("Adicione produtos")}
-          disabled={carrinho.length === 0}
-          title="Finalizar venda (F5)"
-        >
-          ✓ FINALIZAR <kbd>F5</kbd>
         </button>
         {carrinho.length > 0 && (
           <button
             className="btn-mini danger"
             onClick={cancelarVenda}
             title="Cancelar venda"
+            style={{ flex: 1 }}
           >
             ✕ Cancelar
           </button>
         )}
       </div>
+      <button
+        className="btn-checkout"
+        onClick={() => carrinho.length > 0 ? setModalPagamento(true) : setErro("Adicione produtos")}
+        disabled={carrinho.length === 0}
+        title="Finalizar venda (F5)"
+        style={{
+          width: "100%",
+          padding: "18px",
+          fontSize: 18,
+          fontWeight: 800,
+          marginBottom: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8
+        }}
+      >
+        <span style={{ fontSize: 22 }}>✓</span> FINALIZAR VENDA <kbd>F5</kbd>
+      </button>
 
       <div className="cart-footer">
         <small>F2: Cliente | F3: Busca | F4: Desconto | F5: Finalizar</small>
@@ -433,15 +455,22 @@ export default function PDV() {
           {/* MODO MERCADO */}
           {modo === "mercado" && (
             <>
-              <div className="pdv2-busca grande">
+              <div className="pdv2-busca grande" style={{ flex: "0 0 auto", marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>
+                  🔍 BUSCAR PRODUTO
+                </div>
                 <input
                   ref={buscaRef}
                   autoFocus
-                  placeholder="🔍 Código de barras ou nome — Enter adiciona (F3)"
+                  placeholder="Código de barras, nome ou quantidade — Enter para adicionar"
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
                   onKeyDown={onBuscaKeyDown}
+                  style={{ fontSize: 16, padding: "16px 14px", fontWeight: 500 }}
                 />
+                {busca && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                  {produtos.length} resultado{produtos.length !== 1 ? "s" : ""} encontrado{produtos.length !== 1 ? "s" : ""}
+                </div>}
               </div>
               <div className="pdv2-lista">
                 {produtos.length === 0 ? (
