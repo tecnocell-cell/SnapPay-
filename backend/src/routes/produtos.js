@@ -9,9 +9,13 @@ const router = express.Router();
 router.get("/", requirePermissao("produtos.ver"), async (req, res) => {
   try {
     const eid = empresaId(req);
-    const { q, categoria, marca, estoquebaixo } = req.query;
+    const { q, categoria, marca, estoquebaixo, todos } = req.query;
     let sql = "SELECT * FROM produtos WHERE empresa_id = $1";
     let params = [eid];
+
+    // Por padrão, lista apenas produtos ATIVOS (PDV/catálogo).
+    // ?todos=1 inclui inativos (tela de gestão de produtos).
+    if (!todos) sql += " AND ativo = TRUE";
 
     if (q) {
       // Busca: nome por trecho (ILIKE) e código/barras/SKU por igualdade exata
