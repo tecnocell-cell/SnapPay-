@@ -15,6 +15,26 @@ router.get("/", async (req, res) => {
   }
 });
 
+// PUT /api/empresa/segmento — define o tipo de operação do PDV (mercado, loja, etc.)
+router.put("/segmento", requirePermissao("config.editar"), async (req, res) => {
+  try {
+    const eid = empresaId(req);
+    const { segmento } = req.body;
+    const validos = ["mercado", "loja", "padaria", "restaurante", "conveniencia", "farmacia"];
+    if (!validos.includes(segmento)) {
+      return res.status(400).json({ error: "Tipo de operação inválido" });
+    }
+    const result = await query(
+      `UPDATE empresas SET segmento = $1 WHERE id = $2 RETURNING id, nome, segmento`,
+      [segmento, eid]
+    );
+    await registrarAuditoria(req.usuario.id, eid, "UPDATE", "empresas", eid, `Alterou tipo de operação para ${segmento}`, null, result.rows[0] || null);
+    res.json(result.rows.length ? result.rows[0] : {});
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.put("/", requirePermissao("config.editar"), async (req, res) => {
   try {
     const eid = empresaId(req);

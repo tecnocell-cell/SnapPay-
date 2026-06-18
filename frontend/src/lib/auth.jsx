@@ -65,6 +65,12 @@ export function AuthProvider({ children }) {
     setEmpresa(null);
   }
 
+  // Recarrega dados da empresa (ex.: após alterar o tipo de operação)
+  async function recarregarEmpresa() {
+    if (!token) return;
+    await verificarToken();
+  }
+
   function can(permissao) {
     if (!usuario) return false;
     if (usuario.papel === "ADMIN") return true;
@@ -72,7 +78,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ usuario, empresa, carregando, token, login, logout, can }}>
+    <AuthContext.Provider value={{ usuario, empresa, carregando, token, login, logout, can, recarregarEmpresa }}>
       {children}
     </AuthContext.Provider>
   );
