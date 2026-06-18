@@ -7,6 +7,7 @@ export default function Vendas() {
   const [devolucaoModal, setDevolucaoModal] = useState(false);
   const [itemDevolucao, setItemDevolucao] = useState(null);
   const [qtdDevolucao, setQtdDevolucao] = useState(1);
+  const [tipoReembolso, setTipoReembolso] = useState("DINHEIRO");
 
   async function carregar() { setVendas(await api.get("/vendas")); }
   useEffect(() => { carregar(); }, []);
@@ -29,16 +30,24 @@ export default function Vendas() {
       alert("Quantidade inválida");
       return;
     }
+    if (tipoReembolso === "CREDITO_LOJA" && !detalhe?.venda?.cliente_id) {
+      alert("Crédito de loja exige um cliente identificado na venda.");
+      return;
+    }
     try {
-      await api.post(`/vendas/${vendaId}/devolver`, {
+      const r = await api.post(`/vendas/${vendaId}/devolver`, {
         itens: [{ produto_id: item.produto_id, quantidade: qtdDevolucao }],
-        motivo: "Devolução pelo PDV"
+        motivo: "Devolução pelo PDV",
+        tipo_reembolso: tipoReembolso,
       });
       setDevolucaoModal(false);
       setItemDevolucao(null);
       setQtdDevolucao(1);
       verDetalhe(vendaId);
-      alert(`✅ Devolução registrada: ${qtdDevolucao} un de ${item.nome}`);
+      const comoReembolso = tipoReembolso === "CREDITO_LOJA"
+        ? "crédito gerado para o cliente"
+        : `estorno em ${tipoReembolso.replace("CARTAO_", "cartão ").toLowerCase()}`;
+      alert(`✅ Devolução registrada: ${qtdDevolucao} un de ${item.nome} (R$ ${Number(r.valor_total).toFixed(2)}) — ${comoReembolso}`);
     } catch (e) { alert(e.message); }
   }
   function badge(status) {
@@ -160,6 +169,26 @@ export default function Vendas() {
                   boxSizing: "border-box"
                 }}
               />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "#334155" }}>
+                Como reembolsar?
+              </label>
+              <select
+                value={tipoReembolso}
+                onChange={(e) => setTipoReembolso(e.target.value)}
+                style={{ width: "100%", padding: 10, border: "2px solid #cbd5e1", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }}
+              >
+                <optgroup label="Estornar dinheiro/cartão/PIX">
+                  <option value="DINHEIRO">💵 Estornar em dinheiro (sai do caixa)</option>
+                  <option value="PIX">📱 Estornar em PIX</option>
+                  <option value="CARTAO_CREDITO">💳 Estornar em cartão crédito</option>
+                  <option value="CARTAO_DEBITO">🏧 Estornar em cartão débito</option>
+                </optgroup>
+                <optgroup label="Crédito para o cliente">
+                  <option value="CREDITO_LOJA">🎟️ Gerar crédito/vale-troca (exige cliente)</option>
+                </optgroup>
+              </select>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button

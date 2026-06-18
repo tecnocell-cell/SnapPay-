@@ -5,12 +5,13 @@ import { registrarAuditoria } from "./auditoria.js";
 
 const router = Router();
 
-// Saldo FÍSICO (dinheiro): abertura + suprimento + vendas em dinheiro - sangria.
+// Saldo FÍSICO (dinheiro): abertura + suprimento + vendas em dinheiro - sangria - devolução em dinheiro.
 // PIX e cartão NÃO entram no dinheiro da gaveta.
 const SQL_SALDO_DINHEIRO = `
   COALESCE(SUM(CASE
     WHEN tipo IN ('ABERTURA','SUPRIMENTO') THEN valor
     WHEN tipo = 'VENDA' AND forma_pagamento = 'DINHEIRO' THEN valor
+    WHEN tipo = 'DEVOLUCAO' AND forma_pagamento = 'DINHEIRO' THEN -valor
     WHEN tipo = 'SANGRIA' THEN -valor
     ELSE 0 END), 0)`;
 
@@ -105,11 +106,11 @@ router.post("/fechar-com-conferencia", requireAuth, requirePermissao("caixa.oper
     if (c.rowCount === 0) return res.status(400).json({ error: "Nenhum caixa aberto" });
     const caixaId = c.rows[0].id;
 
-    // Vendas por forma de pagamento
+    // Vendas por forma de pagamento, líquidas de devoluções (estornos)
     const formas = await query(
-      `SELECT forma_pagamento, COALESCE(SUM(valor), 0) AS total
+      `SELECT forma_pagamento, COALESCE(SUM(CASE WHEN tipo='DEVOLUCAO' THEN -valor ELSE valor END), 0) AS total
        FROM caixa_movimentos
-       WHERE caixa_id = $1 AND tipo = 'VENDA'
+       WHERE caixa_id = $1 AND tipo IN ('VENDA','DEVOLUCAO')
        GROUP BY forma_pagamento`,
       [caixaId]
     );
@@ -170,11 +171,11 @@ router.get("/:id/resumo", requireAuth, async (req, res) => {
     );
     if (caixa.rowCount === 0) return res.status(404).json({ error: "Caixa não encontrado" });
 
-    // Resumo por forma de pagamento
+    // Resumo por forma de pagamento, líquido de devoluções
     const formas = await query(
-      `SELECT forma_pagamento, COUNT(*) as qtd, COALESCE(SUM(valor), 0) AS total
+      `SELECT forma_pagamento, COUNT(*) as qtd, COALESCE(SUM(CASE WHEN tipo='DEVOLUCAO' THEN -valor ELSE valor END), 0) AS total
        FROM caixa_movimentos
-       WHERE caixa_id = $1 AND tipo = 'VENDA'
+       WHERE caixa_id = $1 AND tipo IN ('VENDA','DEVOLUCAO')
        GROUP BY forma_pagamento`,
       [req.params.id]
     );

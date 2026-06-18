@@ -4,6 +4,7 @@ import "dotenv/config";
 import { pool, query } from "./db.js";
 import { requireAuth, empresaId, requirePermissao } from "./auth.js";
 import { registrarAuditoria } from "./routes/auditoria.js";
+import { criarPrecificador } from "./precificacao.js";
 import authRoutes from "./routes/auth.js";
 import modulosRoutes from "./routes/modulos.js";
 import categoriasRoutes from "./routes/categorias.js";
@@ -77,16 +78,18 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
   try {
     await client.query("BEGIN");
 
-    // Validação de estoque (impede venda negativa) — bloqueia as linhas dos produtos
+    // Carrega+bloqueia produtos (FOR UPDATE) e valida estoque (impede venda negativa).
+    const prodCache = {};
     for (const item of itens) {
       const prod = await client.query(
-        "SELECT nome, estoque_atual FROM produtos WHERE id = $1 AND empresa_id = $2 FOR UPDATE",
+        "SELECT id, nome, estoque_atual, preco_venda, categoria_id FROM produtos WHERE id = $1 AND empresa_id = $2 FOR UPDATE",
         [item.produtoId, eid]
       );
       if (prod.rowCount === 0) throw { status: 400, msg: "Produto inexistente" };
       if (Number(prod.rows[0].estoque_atual) < Number(item.quantidade)) {
         throw { status: 409, msg: `Estoque insuficiente para "${prod.rows[0].nome}" (disponível: ${Number(prod.rows[0].estoque_atual)})` };
       }
+      prodCache[item.produtoId] = prod.rows[0];
     }
 
     // Caixa aberto (se houver) para vincular a venda
@@ -102,17 +105,34 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
     );
     const vendaId = vendaResult.rows[0].id;
 
+    // PREÇO AUTORITATIVO: o servidor recalcula base/tabela/promoção. O preço do PDV é só sugestão.
+    const precificar = await criarPrecificador(client, eid, clienteId || null);
+
     let total = 0;
     for (const item of itens) {
-      const valorTotal = item.quantidade * item.precoUnitario - (item.desconto || 0);
+      const prod = prodCache[item.produtoId];
+      const pr = await precificar(prod, item.quantidade);
+
+      // Trava de segurança: operador não pode FORÇAR preço menor que o autorizado via API.
+      if (item.precoUnitario != null && Number(item.precoUnitario) < pr.preco_unitario - 0.005) {
+        throw { status: 409, msg: `Preço abaixo do autorizado para "${prod.nome}": enviado R$ ${Number(item.precoUnitario).toFixed(2)}, autorizado R$ ${pr.preco_unitario.toFixed(2)}` };
+      }
+
+      // Desconto = promoção (servidor) + desconto manual informado (operador), limitado ao bruto.
+      const descontoManual = Math.max(0, Number(item.desconto || 0));
+      const bruto = +(item.quantidade * pr.preco_unitario).toFixed(2);
+      const descontoItem = Math.min(bruto, +(pr.desconto_promo + descontoManual).toFixed(2));
+      const valorTotal = +(bruto - descontoItem).toFixed(2);
       total += valorTotal;
+
       await client.query(
-        `INSERT INTO venda_itens (venda_id, produto_id, quantidade, preco_unitario, desconto, valor_total)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [vendaId, item.produtoId, item.quantidade, item.precoUnitario, item.desconto || 0, valorTotal]
+        `INSERT INTO venda_itens (venda_id, produto_id, quantidade, preco_unitario, desconto, valor_total,
+                                  preco_base, tabela_preco_id, promocao_id, desconto_promo, desconto_manual)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [vendaId, item.produtoId, item.quantidade, pr.preco_unitario, descontoItem, valorTotal,
+          pr.preco_base, pr.tabela_preco_id, pr.promocao_id, pr.desconto_promo, descontoManual]
       );
-      const antes = await client.query("SELECT estoque_atual FROM produtos WHERE id = $1", [item.produtoId]);
-      const saldoAntes = Number(antes.rows[0].estoque_atual);
+      const saldoAntes = Number(prod.estoque_atual);
       await client.query(
         "UPDATE produtos SET estoque_atual = estoque_atual - $1 WHERE id = $2",
         [item.quantidade, item.produtoId]
@@ -228,35 +248,49 @@ app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async 
   }
 });
 
-// DEVOLUÇÃO (total ou parcial) — body: { itens:[{produto_id, quantidade}], motivo }
+// DEVOLUÇÃO (total ou parcial) com impacto financeiro.
+// body: { itens:[{produto_id, quantidade}], motivo, tipo_reembolso, cliente_id }
+//   tipo_reembolso: DINHEIRO | PIX | CARTAO_CREDITO | CARTAO_DEBITO (A: estorno no caixa)
+//                 | CREDITO_LOJA (B: vale-troca/crédito do cliente)
+//                 | NENHUM (C: só ajuste de estoque — exige motivo e permissão)
+const FORMA_REEMBOLSO = { DINHEIRO: "DINHEIRO", PIX: "PIX", CARTAO_CREDITO: "CREDITO", CARTAO_DEBITO: "DEBITO" };
 app.post("/api/vendas/:id/devolver", requirePermissao("vendas.cancelar"), async (req, res) => {
   const eid = empresaId(req);
   const { itens, motivo } = req.body;
+  const tipoReembolso = (req.body.tipo_reembolso || "DINHEIRO").toUpperCase();
   if (!Array.isArray(itens) || itens.length === 0) return res.status(400).json({ error: "Informe os itens a devolver" });
+  const REEMBOLSOS = ["DINHEIRO", "PIX", "CARTAO_CREDITO", "CARTAO_DEBITO", "CREDITO_LOJA", "NENHUM"];
+  if (!REEMBOLSOS.includes(tipoReembolso)) return res.status(400).json({ error: "tipo_reembolso inválido" });
+  // (C) devolução sem financeiro exige motivo e permissão especial (somente ADMIN/GERENTE).
+  if (tipoReembolso === "NENHUM") {
+    if (!motivo || !motivo.trim()) return res.status(400).json({ error: "Devolução sem reembolso exige motivo" });
+    if (!["ADMIN", "GERENTE"].includes(req.usuario.papel)) return res.status(403).json({ error: "Sem permissão para devolução sem reembolso (ajuste de estoque): exige ADMIN/GERENTE" });
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const venda = await client.query("SELECT status FROM vendas WHERE id=$1 AND empresa_id=$2", [req.params.id, eid]);
+    const venda = await client.query("SELECT status, cliente_id FROM vendas WHERE id=$1 AND empresa_id=$2", [req.params.id, eid]);
     if (venda.rowCount === 0) throw { status: 404, msg: "Venda não encontrada" };
     if (venda.rows[0].status !== "FINALIZADA") throw { status: 400, msg: "Só é possível devolver itens de venda FINALIZADA" };
+    const clienteId = req.body.cliente_id || venda.rows[0].cliente_id || null;
+    if (tipoReembolso === "CREDITO_LOJA" && !clienteId) throw { status: 400, msg: "Crédito de loja exige um cliente identificado na venda" };
 
-    // cria cabeçalho da devolução
     const devQ = await client.query(
-      "INSERT INTO devolucoes (empresa_id, venda_id, usuario_id, motivo) VALUES ($1,$2,$3,$4) RETURNING id",
-      [eid, req.params.id, req.usuario.id, motivo || null]
+      "INSERT INTO devolucoes (empresa_id, venda_id, usuario_id, motivo, tipo_reembolso, cliente_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+      [eid, req.params.id, req.usuario.id, motivo || null, tipoReembolso, clienteId]
     );
     const devId = devQ.rows[0].id;
     let valorTotal = 0;
 
     for (const it of itens) {
-      // item vendido
+      // item vendido — usa o valor LÍQUIDO (já com desconto/promoção) para o reembolso
       const vi = await client.query(
-        "SELECT quantidade, preco_unitario FROM venda_itens WHERE venda_id=$1 AND produto_id=$2",
+        "SELECT quantidade, preco_unitario, valor_total FROM venda_itens WHERE venda_id=$1 AND produto_id=$2",
         [req.params.id, it.produto_id]
       );
       if (vi.rowCount === 0) throw { status: 400, msg: `Produto ${it.produto_id} não está na venda` };
       const vendido = Number(vi.rows[0].quantidade);
-      const precoUnit = Number(vi.rows[0].preco_unitario);
+      const precoUnitLiquido = +(Number(vi.rows[0].valor_total) / vendido).toFixed(4); // líquido por unidade
       // já devolvido deste item
       const jaDev = await client.query(
         `SELECT COALESCE(SUM(di.quantidade),0) AS q FROM devolucao_itens di
@@ -269,11 +303,12 @@ app.post("/api/vendas/:id/devolver", requirePermissao("vendas.cancelar"), async 
       if (qDev <= 0) throw { status: 400, msg: "Quantidade inválida" };
       if (qDev > restante) throw { status: 400, msg: `Devolução excede o disponível do produto ${it.produto_id} (resta ${restante})` };
 
-      const valorItem = +(qDev * precoUnit).toFixed(2);
+      // valor reembolsável = quantidade devolvida × valor LÍQUIDO unitário (nunca > líquido vendido)
+      const valorItem = +(qDev * precoUnitLiquido).toFixed(2);
       valorTotal += valorItem;
       await client.query(
         "INSERT INTO devolucao_itens (devolucao_id, produto_id, quantidade, valor_unitario, valor_total) VALUES ($1,$2,$3,$4,$5)",
-        [devId, it.produto_id, qDev, precoUnit, valorItem]
+        [devId, it.produto_id, qDev, precoUnitLiquido, valorItem]
       );
       // retorna estoque + kardex DEVOLUCAO
       const antes = await client.query("SELECT estoque_atual FROM produtos WHERE id=$1", [it.produto_id]);
@@ -286,10 +321,30 @@ app.post("/api/vendas/:id/devolver", requirePermissao("vendas.cancelar"), async 
       );
     }
 
+    valorTotal = +valorTotal.toFixed(2);
     await client.query("UPDATE devolucoes SET valor_total=$1 WHERE id=$2", [valorTotal, devId]);
+
+    // ===== IMPACTO FINANCEIRO =====
+    if (["DINHEIRO", "PIX", "CARTAO_CREDITO", "CARTAO_DEBITO"].includes(tipoReembolso)) {
+      // (A) Estorno: movimento DEVOLUCAO no caixa aberto, na forma correspondente.
+      const cx = await client.query("SELECT id FROM caixas WHERE empresa_id=$1 AND status='ABERTO' ORDER BY aberto_em DESC LIMIT 1", [eid]);
+      if (cx.rowCount === 0) throw { status: 400, msg: "Não há caixa aberto para estornar o reembolso" };
+      await client.query(
+        "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, forma_pagamento, observacao, empresa_id, usuario_id, referencia_id) VALUES ($1,'DEVOLUCAO',$2,$3,$4,$5,$6,$7)",
+        [cx.rows[0].id, valorTotal, FORMA_REEMBOLSO[tipoReembolso], `Devolução venda #${req.params.id}`, eid, req.usuario.id, devId]
+      );
+    } else if (tipoReembolso === "CREDITO_LOJA") {
+      // (B) Crédito/vale-troca: cria saldo para o cliente, sem mexer no caixa.
+      await client.query(
+        "INSERT INTO creditos_cliente (empresa_id, cliente_id, origem, origem_id, valor, saldo) VALUES ($1,$2,'DEVOLUCAO',$3,$4,$4)",
+        [eid, clienteId, devId, valorTotal]
+      );
+    }
+    // (C) NENHUM: nenhum lançamento financeiro (só estoque/kardex).
+
     await client.query("COMMIT");
-    await registrarAuditoria(req.usuario.id, eid, "DEVOLUCAO", "devolucoes", devId, `Devolução da venda #${req.params.id} (R$ ${valorTotal.toFixed(2)})`, null, { itens, motivo });
-    res.status(201).json({ id: devId, venda_id: Number(req.params.id), valor_total: valorTotal });
+    await registrarAuditoria(req.usuario.id, eid, "DEVOLUCAO", "devolucoes", devId, `Devolução da venda #${req.params.id} (R$ ${valorTotal.toFixed(2)}) — reembolso: ${tipoReembolso}`, null, { itens, motivo, tipo_reembolso: tipoReembolso, cliente_id: clienteId });
+    res.status(201).json({ id: devId, venda_id: Number(req.params.id), valor_total: valorTotal, tipo_reembolso: tipoReembolso });
   } catch (err) {
     await client.query("ROLLBACK");
     if (err.status) return res.status(err.status).json({ error: err.msg });
@@ -298,6 +353,17 @@ app.post("/api/vendas/:id/devolver", requirePermissao("vendas.cancelar"), async 
   } finally {
     client.release();
   }
+});
+
+// Crédito do cliente (vale-troca gerado por devolução CREDITO_LOJA)
+app.get("/api/clientes/:id/creditos", async (req, res) => {
+  const eid = empresaId(req);
+  const r = await query(
+    "SELECT id, origem, origem_id, valor, saldo, status, criado_em FROM creditos_cliente WHERE empresa_id=$1 AND cliente_id=$2 ORDER BY id DESC",
+    [eid, req.params.id]
+  );
+  const saldo = r.rows.filter((c) => c.status === "ATIVO").reduce((a, c) => a + Number(c.saldo), 0);
+  res.json({ saldo_total: +saldo.toFixed(2), creditos: r.rows });
 });
 
 // ----------------------------------------------------------------------------
