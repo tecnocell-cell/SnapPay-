@@ -11,13 +11,27 @@ import {
   sincronizar, removerSincronizadas, getDeviceId,
 } from "../lib/offline";
 
-const MODOS = [
-  { id: "mercado", label: "Mercado", icon: "🏪" },
-  { id: "loja", label: "Loja", icon: "🛍️" },
-];
+// Layout do PDV é determinado pelo segmento configurado em Configurações → Tipo de Operação.
+// O operador NÃO escolhe o segmento. Cada layout é independente.
+const LAYOUT_POR_SEGMENTO = {
+  mercado: "venda",        // foco em velocidade (scanner + teclado)
+  conveniencia: "venda",
+  farmacia: "venda",
+  padaria: "venda",
+  loja: "catalogo",        // categorias + cards
+  restaurante: "restaurante",
+};
+
+const NOME_SEGMENTO = {
+  mercado: "Mercado", loja: "Loja", padaria: "Padaria",
+  restaurante: "Restaurante", conveniencia: "Conveniência", farmacia: "Farmácia",
+};
 
 export default function PDV() {
-  const { usuario, can } = useAuth();
+  const { usuario, can, empresa } = useAuth();
+  const segmento = empresa?.segmento || "mercado";
+  const layout = LAYOUT_POR_SEGMENTO[segmento] || "venda";
+
   const [produtos, setProdutos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [catAtiva, setCatAtiva] = useState(null);
@@ -30,7 +44,6 @@ export default function PDV() {
   const [caixa, setCaixa] = useState(null);
   const [vendaAtual, setVendaAtual] = useState(null);
   const [erro, setErro] = useState("");
-  const [modo, setModo] = useState(() => localStorage.getItem("snappay_pdv_modo") || "mercado");
   const [itemSelecionado, setItemSelecionado] = useState(null);
 
   // Offline First (transparente para o operador)
@@ -48,8 +61,6 @@ export default function PDV() {
 
   const buscaRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem("snappay_pdv_modo", modo); }, [modo]);
-
   // Carregar dados iniciais
   useEffect(() => {
     api.get("/categorias").then(setCategorias).catch(() => {});
@@ -57,8 +68,11 @@ export default function PDV() {
     carregarCaixa();
   }, []);
 
-  // Carregar produtos quando busca ou categoria muda
+  // Carregar produtos.
+  // No layout "venda" (mercado) a tela inicia VAZIA: só busca quando há texto digitado
+  // ou categoria — nunca exibe o catálogo automaticamente.
   const carregarProdutos = useCallback(async () => {
+    if (layout === "venda" && !busca) { setProdutos([]); return; }
     const params = new URLSearchParams();
     if (busca) params.set("q", busca);
     if (catAtiva) params.set("categoria", catAtiva);
@@ -67,7 +81,7 @@ export default function PDV() {
     } catch (err) {
       setErro("Erro ao carregar produtos");
     }
-  }, [busca, catAtiva]);
+  }, [busca, catAtiva, layout]);
 
   useEffect(() => { const t = setTimeout(carregarProdutos, 200); return () => clearTimeout(t); }, [carregarProdutos]);
 
@@ -87,7 +101,6 @@ export default function PDV() {
     return pend.length;
   }
 
-  // Sincroniza pendentes em background (sem expor detalhes técnicos).
   async function sincronizarBackground() {
     const dev = getDeviceId();
     const qtd = await atualizarPendentes();
@@ -103,7 +116,6 @@ export default function PDV() {
     }
   }
 
-  // Observa conexão e dispara sync ao voltar online.
   useEffect(() => observarConexao(setOnline), []);
   useEffect(() => {
     atualizarPendentes();
@@ -111,7 +123,7 @@ export default function PDV() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online]);
 
-  // ---- Carrinho ----
+  // ---- Carrinho (venda em andamento) ----
   const subtotal = carrinho.reduce((a, i) => a + i.quantidade * i.precoUnitario, 0);
   const total = Math.max(0, subtotal - desconto.final);
 
@@ -141,7 +153,7 @@ export default function PDV() {
       }];
     });
 
-    // Voltar foco para busca
+    // Scanner flow: limpa busca e devolve o foco para o campo de busca.
     setTimeout(() => {
       setBusca("");
       buscaRef.current?.focus();
@@ -175,7 +187,7 @@ export default function PDV() {
     buscaRef.current?.focus();
   }
 
-  // Atalhos de teclado
+  // Atalhos de teclado — operação completa sem mouse
   useEffect(() => {
     function onKey(e) {
       const k = e.key;
@@ -199,7 +211,7 @@ export default function PDV() {
     return () => window.removeEventListener("keydown", onKey);
   }, [carrinho]);
 
-  // Enter na busca: adiciona 1º resultado
+  // Enter na busca: adiciona 1º resultado (fluxo scanner)
   function onBuscaKeyDown(e) {
     if (e.key === "Enter" && produtos.length > 0) {
       adicionar(produtos[0]);
@@ -208,20 +220,12 @@ export default function PDV() {
 
   // Finalizar venda
   async function finalizarVenda(pagsPagamento) {
-    if (carrinho.length === 0) {
-      setErro("⚠️ Adicione produtos antes de finalizar");
-      return;
-    }
-
-    if (!caixa?.aberto) {
-      setErro("⚠️ Caixa fechado. Abra com F7 antes de vender.");
-      return;
-    }
+    if (carrinho.length === 0) { setErro("⚠️ Adicione produtos antes de finalizar"); return; }
+    if (!caixa?.aberto) { setErro("⚠️ Caixa fechado. Abra com F7 antes de vender."); return; }
 
     setErro("");
     setModalPagamento(false);
 
-    // OFFLINE: grava a venda localmente (IndexedDB) e segue vendendo.
     if (!online) {
       try {
         await adicionarVendaLocal({
@@ -234,7 +238,6 @@ export default function PDV() {
           })),
           pagamentos: pagsPagamento,
         });
-        // ajusta estoque local p/ manter a venda seguinte consistente
         setProdutos((prev) => prev.map((p) => {
           const it = carrinho.find((c) => c.produtoId === p.id);
           return it ? { ...p, estoque_atual: Number(p.estoque_atual) - it.quantidade } : p;
@@ -249,7 +252,6 @@ export default function PDV() {
       return;
     }
 
-    // ONLINE: fluxo normal pelo backend.
     try {
       const venda = await api.post("/vendas", {
         clienteId: clienteId ? Number(clienteId) : null,
@@ -257,12 +259,11 @@ export default function PDV() {
           produtoId: i.produtoId,
           quantidade: i.quantidade,
           precoUnitario: i.precoUnitario,
-          desconto: desconto.final / carrinho.length, // distribuir desconto
+          desconto: desconto.final / carrinho.length,
         })),
         pagamentos: pagsPagamento,
       });
 
-      // Buscar dados completos da venda
       const vendaCompleta = await api.get(`/vendas/${venda.id}`);
       setVendaAtual(vendaCompleta);
       setModalComprovante(true);
@@ -282,126 +283,121 @@ export default function PDV() {
     }
   }
 
-  // ---- Componentes compartilhados ----
   const ClienteNome = clientes.find((c) => c.id == clienteId)?.nome || "Consumidor final";
 
-  const Carrinho = (
-    <aside className="pdv2-cart">
-      <div className="cart-head">
-        <h3>🛒 Carrinho</h3>
-        <span className="cart-count">{carrinho.length}</span>
-      </div>
-
-      <div className="cart-cliente" onClick={() => setModalCliente(true)} style={{ cursor: "pointer" }}>
-        <div className="cliente-badge">
-          <span>👤 {ClienteNome}</span>
-          <small>F2</small>
+  // ===================== ÁREA DE VENDA (cliente acompanha) =====================
+  // Lista grande dos itens da venda em andamento — fonte grande, voltada ao cliente.
+  const ListaVenda = (
+    <div className="venda-lista">
+      {carrinho.length === 0 ? (
+        <div className="venda-vazia">
+          <div className="venda-marca">💳 SnapPay</div>
+          <p>Passe o código de barras ou pesquise um produto</p>
         </div>
-      </div>
-
-      <div className="cart-itens">
-        {carrinho.length === 0 ? (
-          <div className="cart-vazio">Nenhum item</div>
-        ) : carrinho.map((i) => (
-          <div
-            key={i.produtoId}
-            className={`cart-item ${itemSelecionado === i.produtoId ? "selecionado" : ""}`}
-            onClick={() => setItemSelecionado(i.produtoId)}
-            style={{ display: "grid", gridTemplateColumns: "1fr 60px 80px 24px", gap: 6, alignItems: "center" }}
-          >
-            <div className="ci-nome">
-              {i.nome.substring(0, 20)}
-              <small>R$ {i.precoUnitario.toFixed(2)}</small>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+      ) : (
+        <>
+          <div className="venda-linha venda-cabecalho">
+            <span className="vl-qtd">QTD</span>
+            <span className="vl-nome">PRODUTO</span>
+            <span className="vl-unit">UNITÁRIO</span>
+            <span className="vl-total">TOTAL</span>
+            <span className="vl-x"></span>
+          </div>
+          {carrinho.map((i) => (
+            <div
+              key={i.produtoId}
+              className={`venda-linha ${itemSelecionado === i.produtoId ? "selecionada" : ""}`}
+              onClick={() => setItemSelecionado(i.produtoId)}
+            >
               <input
-                className="ci-qtd"
+                className="vl-qtd-input"
                 type="number"
                 min="1"
                 value={i.quantidade}
                 onChange={(e) => alterarQtd(i.produtoId, Number(e.target.value))}
                 onClick={(e) => e.stopPropagation()}
-                step="1"
-                style={{ textAlign: "center", fontWeight: 600 }}
+                title="Quantidade"
               />
-              <small style={{ fontSize: 9, color: "#94a3b8", fontWeight: 500 }}>Qtd</small>
+              <span className="vl-nome">{i.nome}</span>
+              <span className="vl-unit">R$ {i.precoUnitario.toFixed(2)}</span>
+              <span className="vl-total">R$ {(i.quantidade * i.precoUnitario).toFixed(2)}</span>
+              <button className="vl-x" onClick={(e) => { e.stopPropagation(); remover(i.produtoId); }} title="Remover">✕</button>
             </div>
-            <div className="ci-sub" style={{ textAlign: "right" }}>R$ {(i.quantidade * i.precoUnitario).toFixed(2)}</div>
-            <button
-              className="ci-x"
-              onClick={() => remover(i.produtoId)}
-              style={{ padding: 4 }}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-      </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
 
-      {erro && <div className="cart-erro">⚠️ {erro}</div>}
-
-      <div className="cart-resumo">
-        <div className="cart-linha">
-          <span>Subtotal:</span>
-          <span>R$ {subtotal.toFixed(2)}</span>
-        </div>
-        {desconto.final > 0 && (
-          <div className="cart-linha desconto">
-            <span>Desconto:</span>
-            <span>-R$ {desconto.final.toFixed(2)}</span>
-          </div>
-        )}
-        <div className="cart-total">
-          <span>TOTAL</span>
-          <strong>R$ {total.toFixed(2)}</strong>
-        </div>
+  // Painel de totais + pagamento (sempre visível)
+  const PainelTotais = (
+    <div className="venda-totais">
+      <div className="vt-linha">
+        <span>Subtotal</span>
+        <span>R$ {subtotal.toFixed(2)}</span>
       </div>
-
-      <div className="cart-acoes" style={{ gap: 6 }}>
-        <button
-          className="btn-mini"
-          onClick={() => setModalDesconto(true)}
-          title="Desconto (F4)"
-          style={{ flex: 1 }}
-        >
-          🏷️ Desconto
-        </button>
-        {carrinho.length > 0 && (
-          <button
-            className="btn-mini danger"
-            onClick={cancelarVenda}
-            title="Cancelar venda"
-            style={{ flex: 1 }}
-          >
-            ✕ Cancelar
-          </button>
-        )}
+      <div className="vt-linha vt-desc" onClick={() => setModalDesconto(true)} title="Desconto (F4)">
+        <span>Desconto {desconto.final > 0 ? "" : "(F4)"}</span>
+        <span>{desconto.final > 0 ? `- R$ ${desconto.final.toFixed(2)}` : "R$ 0,00"}</span>
       </div>
+      <div className="vt-total">
+        <span>TOTAL</span>
+        <strong>R$ {total.toFixed(2)}</strong>
+      </div>
+      {erro && <div className="cart-erro" style={{ margin: "8px 0" }}>⚠️ {erro}</div>}
       <button
-        className="btn-checkout"
+        className="btn-checkout vt-finalizar"
         onClick={() => carrinho.length > 0 ? setModalPagamento(true) : setErro("Adicione produtos")}
         disabled={carrinho.length === 0}
         title="Finalizar venda (F5)"
-        style={{
-          width: "100%",
-          padding: "18px",
-          fontSize: 18,
-          fontWeight: 800,
-          marginBottom: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8
-        }}
       >
         <span style={{ fontSize: 22 }}>✓</span> FINALIZAR VENDA <kbd>F5</kbd>
       </button>
-
-      <div className="cart-footer">
-        <small>F2: Cliente | F3: Busca | F4: Desconto | F5: Finalizar</small>
-        <small>F6: Remove item | F7/F8: Caixa | F9/F10: Sangria/Suprimento</small>
+      <div className="vt-secundario">
+        <button className="btn-mini" onClick={() => setModalCliente(true)} title="Cliente (F2)">
+          👤 {ClienteNome.substring(0, 16)}
+        </button>
+        {carrinho.length > 0 && (
+          <button className="btn-mini danger" onClick={cancelarVenda}>✕ Cancelar</button>
+        )}
       </div>
-    </aside>
+    </div>
+  );
+
+  // Campo de busca + resultados (dropdown que só aparece com texto)
+  const BuscaVenda = (
+    <div className="venda-busca">
+      <input
+        ref={buscaRef}
+        autoFocus
+        placeholder="🔍 Passe o código de barras ou pesquise um produto — Enter adiciona"
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+        onKeyDown={onBuscaKeyDown}
+      />
+      {busca && (
+        <div className="venda-resultados">
+          {produtos.length === 0 ? (
+            <div className="vr-vazio">Nenhum produto encontrado para “{busca}”</div>
+          ) : produtos.slice(0, 8).map((p) => {
+            const sem = Number(p.estoque_atual) <= 0;
+            return (
+              <button
+                key={p.id}
+                className={`vr-item ${sem ? "sem-estoque" : ""}`}
+                disabled={sem}
+                onClick={() => adicionar(p)}
+              >
+                <span className="vr-cod">{p.codigo}</span>
+                <span className="vr-nome">{p.nome}</span>
+                <span className="vr-est">{Number(p.estoque_atual)} un</span>
+                <span className="vr-preco">R$ {Number(p.preco_venda).toFixed(2)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 
   return (
@@ -423,189 +419,134 @@ export default function PDV() {
       {aviso && <div className="pdv2-aviso ok">{aviso}</div>}
 
       <div className="pdv2-header">
-        <div className="pdv2-modos">
-          {MODOS.map((m) => (
-            <button
-              key={m.id}
-              className={`modo-btn ${modo === m.id ? "ativo" : ""}`}
-              onClick={() => setModo(m.id)}
-            >
-              {m.icon} {m.label}
-            </button>
-          ))}
+        <div className="pdv2-segmento">
+          <span className="seg-badge">{NOME_SEGMENTO[segmento] || "Mercado"}</span>
         </div>
-
         <div className="pdv2-status">
           {caixa?.aberto ? (
             <span className="status-ok">🟢 Caixa aberto | R$ {Number(caixa.saldo).toFixed(2)}</span>
           ) : (
-            <span
-              className="status-erro"
-              onClick={() => setModalCaixa(true)}
-              style={{ cursor: "pointer" }}
-            >
+            <span className="status-erro" onClick={() => setModalCaixa(true)} style={{ cursor: "pointer" }}>
               🔴 Caixa fechado (F7 para abrir)
             </span>
           )}
         </div>
       </div>
 
-      <div className={`pdv2-grid ${modo === "mercado" ? "modo-mercado" : "modo-loja"}`}>
-        <div className="pdv2-center">
-          {/* MODO MERCADO */}
-          {modo === "mercado" && (
-            <>
-              <div className="pdv2-busca grande" style={{ flex: "0 0 auto", marginBottom: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>
-                  🔍 BUSCAR PRODUTO
-                </div>
-                <input
-                  ref={buscaRef}
-                  autoFocus
-                  placeholder="Código de barras, nome ou quantidade — Enter para adicionar"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  onKeyDown={onBuscaKeyDown}
-                  style={{ fontSize: 16, padding: "16px 14px", fontWeight: 500 }}
-                />
-                {busca && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-                  {produtos.length} resultado{produtos.length !== 1 ? "s" : ""} encontrado{produtos.length !== 1 ? "s" : ""}
-                </div>}
-              </div>
-              <div className="pdv2-lista">
-                {produtos.length === 0 ? (
-                  <div className="vazio"><p>Nenhum produto</p></div>
-                ) : produtos.map((p) => {
-                  const sem = Number(p.estoque_atual) <= 0;
-                  const baixo = Number(p.estoque_atual) <= Number(p.estoque_minimo);
-                  return (
-                    <button
-                      key={p.id}
-                      className={`lista-item ${sem ? "sem-estoque" : ""} ${baixo ? "baixo-estoque" : ""}`}
-                      disabled={sem}
-                      onClick={() => adicionar(p)}
-                    >
-                      <span className="li-cod">{p.codigo}</span>
-                      <span className="li-nome">{p.nome.substring(0, 50)}</span>
-                      <span className="li-est">{Number(p.estoque_atual)} un</span>
-                      <span className="li-preco">R$ {Number(p.preco_venda).toFixed(2)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {/* MODO LOJA */}
-          {modo === "loja" && (
-            <>
-              <div className="pdv2-cats">
-                <button
-                  className={`cat-btn ${!catAtiva ? "ativo" : ""}`}
-                  onClick={() => setCatAtiva(null)}
-                >
-                  Todos
-                </button>
-                {categorias.map((c) => (
-                  <button
-                    key={c.id}
-                    className={`cat-btn ${catAtiva == c.id ? "ativo" : ""}`}
-                    style={
-                      catAtiva == c.id
-                        ? { background: c.cor, borderColor: c.cor, color: "#fff" }
-                        : { borderColor: c.cor }
-                    }
-                    onClick={() => setCatAtiva(c.id)}
-                  >
-                    {c.icone} {c.nome}
-                  </button>
-                ))}
-              </div>
-              <div className="pdv2-busca">
-                <input
-                  ref={buscaRef}
-                  placeholder="🔍 Buscar produto (F3)"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                />
-              </div>
-              <div className="pdv2-produtos">
-                {produtos.length === 0 ? (
-                  <div className="vazio"><p>Nenhum produto</p></div>
-                ) : produtos.map((p) => {
-                  const sem = Number(p.estoque_atual) <= 0;
-                  const baixo = Number(p.estoque_atual) <= Number(p.estoque_minimo);
-                  return (
-                    <button
-                      key={p.id}
-                      className={`prod-card ${sem ? "sem-estoque" : ""} ${baixo ? "baixo-estoque" : ""}`}
-                      disabled={sem}
-                      onClick={() => adicionar(p)}
-                    >
-                      <span className={`prod-badge ${baixo ? "baixo" : ""}`}>
-                        {Number(p.estoque_atual)}
-                      </span>
-                      <span className="prod-nome">{p.nome.substring(0, 34)}</span>
-                      <span className="prod-cod">{p.codigo}</span>
-                      <span className="prod-preco">R$ {Number(p.preco_venda).toFixed(2)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
+      {/* ===================== LAYOUT VENDA (Mercado / Conveniência / Farmácia / Padaria) ===================== */}
+      {layout === "venda" && (
+        <div className="pdv-venda">
+          <div className="pdv-venda-main">
+            {BuscaVenda}
+            {ListaVenda}
+          </div>
+          <aside className="pdv-venda-side">
+            {PainelTotais}
+            <div className="cart-footer">
+              <small>F2: Cliente | F3: Busca | F4: Desconto | F5: Finalizar</small>
+              <small>F6: Remove item | F7/F8: Caixa | F9/F10: Sangria/Suprimento</small>
+            </div>
+          </aside>
         </div>
+      )}
 
-        {Carrinho}
-      </div>
+      {/* ===================== LAYOUT CATÁLOGO (Loja) ===================== */}
+      {layout === "catalogo" && (
+        <div className="pdv2-grid modo-loja">
+          <div className="pdv2-center">
+            <div className="pdv2-cats">
+              <button className={`cat-btn ${!catAtiva ? "ativo" : ""}`} onClick={() => setCatAtiva(null)}>Todos</button>
+              {categorias.map((c) => (
+                <button
+                  key={c.id}
+                  className={`cat-btn ${catAtiva == c.id ? "ativo" : ""}`}
+                  style={catAtiva == c.id ? { background: c.cor, borderColor: c.cor, color: "#fff" } : { borderColor: c.cor }}
+                  onClick={() => setCatAtiva(c.id)}
+                >
+                  {c.icone} {c.nome}
+                </button>
+              ))}
+            </div>
+            <div className="pdv2-busca">
+              <input
+                ref={buscaRef}
+                placeholder="🔍 Buscar produto (F3)"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+            </div>
+            <div className="pdv2-produtos">
+              {produtos.length === 0 ? (
+                <div className="vazio"><p>Selecione uma categoria ou busque um produto</p></div>
+              ) : produtos.map((p) => {
+                const sem = Number(p.estoque_atual) <= 0;
+                const baixo = Number(p.estoque_atual) <= Number(p.estoque_minimo);
+                return (
+                  <button
+                    key={p.id}
+                    className={`prod-card ${sem ? "sem-estoque" : ""} ${baixo ? "baixo-estoque" : ""}`}
+                    disabled={sem}
+                    onClick={() => adicionar(p)}
+                  >
+                    <span className={`prod-badge ${baixo ? "baixo" : ""}`}>{Number(p.estoque_atual)}</span>
+                    <span className="prod-nome">{p.nome.substring(0, 34)}</span>
+                    <span className="prod-cod">{p.codigo}</span>
+                    <span className="prod-preco">R$ {Number(p.preco_venda).toFixed(2)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <aside className="pdv-venda-side">
+            {ListaVenda}
+            {PainelTotais}
+          </aside>
+        </div>
+      )}
+
+      {/* ===================== LAYOUT RESTAURANTE (estrutura independente) ===================== */}
+      {layout === "restaurante" && (
+        <div className="pdv-restaurante">
+          <div className="resto-tabs">
+            <button className="resto-tab ativo">🍽️ Mesas</button>
+            <button className="resto-tab">🧾 Comandas</button>
+            <button className="resto-tab">🍹 Balcão</button>
+            <button className="resto-tab">🛵 Delivery</button>
+          </div>
+          <div className="resto-mesas">
+            {Array.from({ length: 12 }).map((_, idx) => (
+              <button key={idx} className="resto-mesa livre">
+                <span className="rm-num">Mesa {idx + 1}</span>
+                <span className="rm-status">Livre</span>
+              </button>
+            ))}
+          </div>
+          <div className="resto-info">
+            Estrutura de restaurante (mesas, comandas, balcão e delivery) — independente do layout de mercado.
+          </div>
+        </div>
+      )}
 
       {/* Modais */}
       {modalCliente && (
-        <ClienteModal
-          clientes={clientes}
-          clienteId={clienteId}
-          onSelect={setClienteId}
-          onClose={() => setModalCliente(false)}
-        />
+        <ClienteModal clientes={clientes} clienteId={clienteId} onSelect={setClienteId} onClose={() => setModalCliente(false)} />
       )}
-
       {modalDesconto && (
-        <DescontoModal
-          subtotal={subtotal}
-          desconto={desconto}
-          onApply={(d) => setDesconto({ ...d })}
-          onClose={() => setModalDesconto(false)}
-        />
+        <DescontoModal subtotal={subtotal} desconto={desconto} onApply={(d) => setDesconto({ ...d })} onClose={() => setModalDesconto(false)} />
       )}
-
       {modalPagamento && (
-        <PagamentoModal
-          total={total}
-          pagamentos={pagamentos}
-          onApply={finalizarVenda}
-          onClose={() => setModalPagamento(false)}
-        />
+        <PagamentoModal total={total} pagamentos={pagamentos} onApply={finalizarVenda} onClose={() => setModalPagamento(false)} />
       )}
-
       {modalCaixa && (
-        <CaixaRapido
-          caixa={caixa}
-          onClose={() => setModalCaixa(false)}
-          onRefresh={carregarCaixa}
-        />
+        <CaixaRapido caixa={caixa} onClose={() => setModalCaixa(false)} onRefresh={carregarCaixa} />
       )}
-
       {modalComprovante && vendaAtual && (
         <ComprovanteVenda
           venda={vendaAtual.venda}
           itens={vendaAtual.itens}
           pagamentos={vendaAtual.pagamentos}
           cliente={ClienteNome}
-          onNova={() => {
-            setModalComprovante(false);
-            setVendaAtual(null);
-            buscaRef.current?.focus();
-          }}
+          onNova={() => { setModalComprovante(false); setVendaAtual(null); buscaRef.current?.focus(); }}
         />
       )}
     </div>
