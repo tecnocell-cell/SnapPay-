@@ -86,8 +86,11 @@ export default function Compras() {
     if (!confirm("Marcar como recebida e adicionar ao estoque?")) return;
     try {
       await api.put(`/compras/${id}/receber`, {});
+      setErro("");
       setDetalhe(null);
-      carregar();
+      setFiltroStatus("RECEBIDA");
+      setTimeout(() => carregar(), 500);
+      alert("✅ Compra recebida com sucesso! Estoque atualizado.");
     } catch (err) {
       setErro(err.message);
     }
@@ -213,44 +216,69 @@ export default function Compras() {
 
       {detalhe && (
         <div className="modal-overlay" onClick={() => setDetalhe(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Compra #{detalhe.compra.id} - {detalhe.compra.status}</h3>
-            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>
-              {fornecedorNome(detalhe.compra.fornecedor_id)} | {new Date(detalhe.compra.criado_em).toLocaleString("pt-BR")}
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 600 }}>
+            <div style={{ background: detalhe.compra.status === "PENDENTE" ? "#eef2ff" : "#f0fdf4", padding: 12, borderRadius: 8, marginBottom: 16 }}>
+              <h3 style={{ margin: 0, marginBottom: 4 }}>📦 Receber Compra #{detalhe.compra.id}</h3>
+              <div style={{ fontSize: 13, color: "#64748b" }}>
+                <strong>Fornecedor:</strong> {fornecedorNome(detalhe.compra.fornecedor_id)} |
+                <strong style={{ marginLeft: 12 }}>Status:</strong> <span style={{ background: detalhe.compra.status === "RECEBIDA" ? "#dcfce7" : "#fef3c7", padding: "2px 8px", borderRadius: 4, fontSize: 12, fontWeight: 700 }}>{detalhe.compra.status}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+                {new Date(detalhe.compra.criado_em).toLocaleString("pt-BR")}
+              </div>
             </div>
 
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Produto</th>
-                  <th>Qtd</th>
-                  <th>Unit.</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detalhe.itens.map((it) => (
-                  <tr key={it.id}>
-                    <td>{it.nome}</td>
-                    <td>{it.quantidade}</td>
-                    <td>R$ {Number(it.preco_unitario).toFixed(2)}</td>
-                    <td>R$ {Number(it.valor_total).toFixed(2)}</td>
+            <div style={{ marginBottom: 16 }}>
+              <h4 style={{ margin: "0 0 10px", fontSize: 14, color: "#334155" }}>
+                <span style={{ color: "#6366f1", fontWeight: 700 }}>2. Produtos na Compra</span>
+              </h4>
+              <table className="data-table" style={{ width: "100%" }}>
+                <thead>
+                  <tr>
+                    <th>Produto</th>
+                    <th>Quantidade</th>
+                    <th>Preço Unit.</th>
+                    <th>Total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {detalhe.itens.map((it) => (
+                    <tr key={it.id}>
+                      <td>{it.nome}</td>
+                      <td style={{ textAlign: "center" }}>{it.quantidade}</td>
+                      <td style={{ textAlign: "right" }}>R$ {Number(it.preco_unitario).toFixed(2)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>R$ {Number(it.valor_total).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-            <div style={{ marginTop: 12, textAlign: "right", fontSize: 16, fontWeight: 700 }}>
-              Total: R$ {detalhe.compra.valor_total}
+            <div style={{ background: "#f8fafc", padding: 14, borderRadius: 8, marginBottom: 16 }}>
+              <h4 style={{ margin: "0 0 8px", fontSize: 13, color: "#64748b", fontWeight: 700 }}>3. Resumo da Compra</h4>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 800, color: "#6366f1" }}>
+                <span>Valor Total:</span>
+                <strong>R$ {Number(detalhe.compra.valor_total).toFixed(2)}</strong>
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               {detalhe.compra.status === "PENDENTE" && (
-                <button className="btn-checkout ok" onClick={() => receberCompra(detalhe.compra.id)}>
-                  ✓ Marcar como Recebida
+                <button
+                  className="btn-checkout ok"
+                  onClick={() => receberCompra(detalhe.compra.id)}
+                  style={{ flex: 1, padding: 16, fontSize: 16, fontWeight: 700 }}
+                >
+                  ✓ Confirmar Recebimento
                 </button>
               )}
-              <button className="btn-mini" onClick={() => setDetalhe(null)}>Fechar</button>
+              <button
+                className="btn-mini"
+                onClick={() => setDetalhe(null)}
+                style={{ padding: "10px 16px" }}
+              >
+                {detalhe.compra.status === "RECEBIDA" ? "✓ Pronto" : "✕ Cancelar"}
+              </button>
             </div>
           </div>
         </div>
