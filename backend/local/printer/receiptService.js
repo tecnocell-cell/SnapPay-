@@ -1,6 +1,6 @@
 // Serviço de geração de cupom — template estruturado
 
-class ReceiptService {
+export default class ReceiptService {
   constructor() {
     this.larguraPapel = 80; // caracteres, padrão ESC/POS
   }
@@ -116,5 +116,3 @@ class ReceiptService {
     return { valido: true };
   }
 }
-
-module.exports = ReceiptService;

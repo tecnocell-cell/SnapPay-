@@ -1,9 +1,12 @@
 // Auditoria de impressão — registra eventos em log local + PostgreSQL
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-class AuditService {
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export default class AuditService {
   constructor(db = null) {
     this.db = db; // PostgreSQL connection (futuro)
     this.logDir = path.join(process.cwd(), 'printer_logs');
@@ -134,5 +137,3 @@ class AuditService {
     }
   }
 }
-
-module.exports = AuditService;

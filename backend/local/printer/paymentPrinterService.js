@@ -1,8 +1,8 @@
 // Orquestrador de impressão + gaveta por forma de pagamento
 
-const ReceiptService = require('./receiptService');
+import ReceiptService from './receiptService.js';
 
-class PaymentPrinterService {
+export default class PaymentPrinterService {
   constructor(printerService, auditService) {
     this.printer = printerService;
     this.audit = auditService;
@@ -180,5 +180,3 @@ class PaymentPrinterService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
-
-module.exports = PaymentPrinterService;

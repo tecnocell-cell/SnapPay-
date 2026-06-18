@@ -5,6 +5,10 @@ import { pool, query } from "./db.js";
 import { requireAuth, empresaId, requirePermissao, autorizarGerente } from "./auth.js";
 import { registrarAuditoria } from "./routes/auditoria.js";
 import { criarPrecificador } from "./precificacao.js";
+// Fase 8 — Impressão + Auditoria
+import PrinterService from "../local/printer/printerService.js";
+import AuditService from "../local/printer/auditService.js";
+import PaymentPrinterService from "../local/printer/paymentPrinterService.js";
 import authRoutes from "./routes/auth.js";
 import modulosRoutes from "./routes/modulos.js";
 import categoriasRoutes from "./routes/categorias.js";
@@ -28,6 +32,11 @@ import terminalRoutes from "./routes/terminal.js";
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Fase 8 — Inicializar serviços de impressão
+const printerService = new PrinterService({ provider: "MOCK" });
+const auditService = new AuditService();
+const paymentPrinterService = new PaymentPrinterService(printerService, auditService);
 
 // ----------------------------------------------------------------------------
 // FASE 0 — Fundação: auth, módulos, categorias, caixa
@@ -222,6 +231,44 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
     }
 
     await client.query("COMMIT");
+
+    // Fase 8 — Impressão (pós-commit: venda é válida mesmo se impressão falhar)
+    // Executado em background para não bloquear resposta ao cliente
+    setImmediate(async () => {
+      try {
+        const empresaRes = await query("SELECT nome, cnpj FROM empresas WHERE id = $1", [eid]);
+        const empresa = empresaRes.rows[0] || { nome: "SnapPay", cnpj: "00.000.000/0000-00" };
+
+        // Recuperar itens da venda após commit
+        const vendaItensRes = await query(
+          `SELECT vi.*, p.nome FROM venda_itens vi
+           JOIN produtos p ON p.id = vi.produto_id
+           WHERE vi.venda_id = $1`,
+          [vendaId]
+        );
+
+        const vendaObj = {
+          numero: String(vendaId).padStart(7, "0"),
+          id: vendaId,
+          total: total,
+          subtotal: total,
+          desconto: 0,
+          acrescimo: 0,
+          formaPagamento: (req.body.pagamentos && req.body.pagamentos[0]) ? req.body.pagamentos[0].forma : "DINHEIRO",
+          itens: vendaItensRes.rows.map(item => ({
+            produto: item.nome,
+            preco: Number(item.preco_unitario),
+            qtd: Number(item.quantidade),
+          })),
+          unidade: unidadeId ? `Unidade #${unidadeId}` : "Matriz",
+        };
+
+        await paymentPrinterService.finalizarVenda(vendaObj, empresa, req.usuario.nome || "Operador");
+      } catch (errImp) {
+        console.error("[IMPRESSAO] Falha ao imprimir venda:", errImp.message);
+        // Não rollback: venda é válida mesmo se impressão falhar
+      }
+    });
     await registrarAuditoria(req.usuario.id, eid, "VENDA", "vendas", vendaId, `Finalizou venda #${vendaId} (R$ ${total.toFixed(2)})`, null, { id: vendaId, total });
     res.status(201).json({ id: vendaId, total, caixaId });
   } catch (err) {
