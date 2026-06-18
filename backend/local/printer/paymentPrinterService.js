@@ -1,11 +1,13 @@
 // Orquestrador de impressão + gaveta por forma de pagamento
 
 import ReceiptService from './receiptService.js';
+import PrintHistoryService from './printHistoryService.js';
 
 export default class PaymentPrinterService {
-  constructor(printerService, auditService) {
+  constructor(printerService, auditService, historyService = null) {
     this.printer = printerService;
     this.audit = auditService;
+    this.history = historyService || new PrintHistoryService();
     this.receiptService = new ReceiptService();
     this.ultimoCupom = null;
   }
@@ -31,6 +33,14 @@ export default class PaymentPrinterService {
         terminal_id: process.env.DEVICE_ID || "unknown",
       });
 
+      // 2.5 Registrar cupom no histórico
+      await this.history.registrarCupom(venda.id, cupom, {
+        forma_pagamento: venda.formaPagamento,
+        total: venda.total,
+        operador: operador,
+        empresa_id: empresa.id,
+      });
+
       // 3. Abrir gaveta conforme forma pagamento
       await this.executarAcaoPagamento(venda.formaPagamento);
 
@@ -47,6 +57,14 @@ export default class PaymentPrinterService {
         usuario: operador,
         terminal_id: process.env.DEVICE_ID || "unknown",
         erro: erro.message,
+      });
+
+      // Registrar falha no histórico
+      await this.history.registrarFalha(venda.id, erro, {
+        forma_pagamento: venda.formaPagamento,
+        total: venda.total,
+        operador: operador,
+        empresa_id: empresa.id,
       });
 
       return {
@@ -104,17 +122,54 @@ export default class PaymentPrinterService {
 
     try {
       await this.printer.imprimirComprovante(this.ultimoCupom.cupom);
+      const vendaId = this.ultimoCupom.venda.id;
+
       await this.audit.registrar("REIMPRESSAO", {
-        venda_id: this.ultimoCupom.venda.id,
+        venda_id: vendaId,
         timestamp: new Date(),
       });
+
+      await this.history.registrarReimpressao(vendaId, true);
+
+      return { sucesso: true, mensagem: "Cupom reimpresso com sucesso" };
+    } catch (erro) {
+      const vendaId = this.ultimoCupom.venda.id;
+
+      await this.audit.registrar("REIMPRESSAO_FALHOU", {
+        venda_id: vendaId,
+        erro: erro.message,
+      });
+
+      await this.history.registrarReimpressao(vendaId, false, erro);
+
+      throw erro;
+    }
+  }
+
+  // Reimpressão de cupom específico por venda_id
+  async reimprimirPorVenda(vendaId, cupomTexto) {
+    if (!cupomTexto) {
+      throw new Error("Cupom não fornecido");
+    }
+
+    try {
+      await this.printer.imprimirComprovante(cupomTexto);
+
+      await this.audit.registrar("REIMPRESSAO", {
+        venda_id: vendaId,
+        timestamp: new Date(),
+      });
+
+      await this.history.registrarReimpressao(vendaId, true);
 
       return { sucesso: true, mensagem: "Cupom reimpresso com sucesso" };
     } catch (erro) {
       await this.audit.registrar("REIMPRESSAO_FALHOU", {
-        venda_id: this.ultimoCupom.venda.id,
+        venda_id: vendaId,
         erro: erro.message,
       });
+
+      await this.history.registrarReimpressao(vendaId, false, erro);
 
       throw erro;
     }

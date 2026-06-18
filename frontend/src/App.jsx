@@ -4,6 +4,7 @@ import "./styles/pdv.css";
 import { useAuth } from "./lib/auth";
 import { useModules, REGISTRY } from "./lib/modules";
 import { ModuleGate } from "./components/ModuleGate";
+import { obterMenuPorPapel } from "./lib/papelPermissoes";
 import Login from "./pages/Login";
 import PDV from "./pages/PDV";
 import Produtos from "./pages/Produtos";
@@ -94,9 +95,14 @@ export default function App() {
     return <Login />;
   }
 
-  // itens do menu: módulo ativo + permissão (quando exigida)
-  // Em modo terminal, esconder itens administrativos
+  // itens do menu: módulo ativo + permissão + papel do usuário
   let itens = REGISTRY.filter((m) => isAtivo(m.modulo) && (!m.perm || can(m.perm)));
+
+  // Filtrar por papel do usuário (OPERADOR, GERENTE, ADMIN)
+  const menuPorPapel = obterMenuPorPapel(usuario.papel || "OPERADOR");
+  itens = itens.filter((m) => menuPorPapel.includes(m.id));
+
+  // Em modo terminal, esconder itens administrativos
   if (modoTerminal) {
     // Permitir só: PDV, Caixa, Vendas, Clientes
     itens = itens.filter((m) => ["pdv", "caixa", "vendas", "clientes"].includes(m.id));
