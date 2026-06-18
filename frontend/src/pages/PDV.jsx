@@ -61,6 +61,12 @@ export default function PDV() {
   const [modalPagamento, setModalPagamento] = useState(false);
   const [modalCaixa, setModalCaixa] = useState(false);
   const [modalComprovante, setModalComprovante] = useState(false);
+  // Cancelamento protegido (exige autorização de gerente/admin)
+  const [modalCancelar, setModalCancelar] = useState(false);
+  const [cancelSenha, setCancelSenha] = useState("");
+  const [cancelMotivo, setCancelMotivo] = useState("");
+  const [cancelErro, setCancelErro] = useState("");
+  const [cancelLoading, setCancelLoading] = useState(false);
 
   const buscaRef = useRef(null);
 
@@ -223,11 +229,19 @@ export default function PDV() {
     buscaRef.current?.focus();
   }
 
+  const algumModalAberto = modalCliente || modalDesconto || modalPagamento || modalCaixa || modalComprovante || modalCancelar;
+
+  function fecharModais() {
+    setModalCliente(false); setModalDesconto(false); setModalPagamento(false);
+    setModalCaixa(false); setModalCancelar(false);
+    // comprovante fecha pelo próprio botão "Nova venda"
+  }
+
   // Atalhos de teclado — operação completa sem mouse
   useEffect(() => {
     function onKey(e) {
       const k = e.key;
-      if (["F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"].includes(k)) e.preventDefault();
+      if (["F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F12"].includes(k)) e.preventDefault();
 
       if (k === "F2") setModalCliente(true);
       else if (k === "F3") buscaRef.current?.focus();
@@ -241,11 +255,18 @@ export default function PDV() {
       }
       else if (k === "F7" || k === "F8") setModalCaixa(true);
       else if (k === "F9" || k === "F10") setModalCaixa(true);
-      else if (k === "Escape") limpar();
+      // Cancelamento de venda em andamento é AÇÃO PROTEGIDA: abre modal (senha gerente).
+      else if (k === "F12") { if (carrinho.length > 0) abrirCancelamento(); }
+      else if (k === "Escape") {
+        // ESC NUNCA cancela a venda. Só fecha modal / limpa busca / desfaz seleção.
+        if (algumModalAberto) fecharModais();
+        else if (busca) setBusca("");
+        else if (itemSelecionado) setItemSelecionado(null);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [carrinho]);
+  }, [carrinho, busca, itemSelecionado, algumModalAberto]);
 
   // Enter na busca: adiciona 1º resultado (fluxo scanner)
   function onBuscaKeyDown(e) {
@@ -332,10 +353,36 @@ export default function PDV() {
     }
   }
 
-  async function cancelarVenda() {
-    if (!confirm("Cancelar venda atual? (Limpar carrinho)")) return;
-    if (confirm("Tem certeza? Esta ação não pode ser desfeita.")) {
+  // Abre o modal protegido de cancelamento da venda em andamento.
+  function abrirCancelamento() {
+    if (carrinho.length === 0) return;
+    setCancelSenha(""); setCancelMotivo(""); setCancelErro("");
+    setModalCancelar(true);
+  }
+
+  // Cancelamento da venda EM ANDAMENTO exige autorização de gerente/admin + motivo.
+  async function confirmarCancelamento() {
+    setCancelErro("");
+    if (!cancelMotivo.trim()) { setCancelErro("Informe o motivo do cancelamento."); return; }
+    if (!cancelSenha) { setCancelErro("Senha do gerente/administrador é obrigatória."); return; }
+    setCancelLoading(true);
+    try {
+      await api.post("/auth/autorizar-operacao", {
+        operacao: "CANCELAR_VENDA",
+        senha: cancelSenha,
+        motivo: cancelMotivo,
+      });
+      setModalCancelar(false);
       limpar();
+      setAviso("Venda cancelada com autorização do gerente.");
+      setTimeout(() => setAviso(""), 3000);
+    } catch (err) {
+      // Sem autorização válida: orienta a chamar o gerente.
+      setCancelErro(err.status === 403
+        ? "Chame o gerente para autorizar o cancelamento."
+        : (err.message || "Falha na autorização"));
+    } finally {
+      setCancelLoading(false);
     }
   }
 
@@ -437,9 +484,7 @@ export default function PDV() {
         <span style={{ fontSize: 22 }}>✓</span> FINALIZAR VENDA <kbd>F5</kbd>
       </button>
       {carrinho.length > 0 && (
-        <button className="btn-mini danger" style={{ marginTop: 8, width: "100%" }} onClick={cancelarVenda} title="Cancelar (ESC)">
-          ✕ Cancelar venda <kbd>ESC</kbd>
-        </button>
+        <div className="vt-cancel-hint">🔒 Cancelar venda exige autorização do gerente <kbd>F12</kbd></div>
       )}
     </div>
   );
@@ -628,6 +673,38 @@ export default function PDV() {
           cliente={ClienteNome}
           onNova={() => { setModalComprovante(false); setVendaAtual(null); buscaRef.current?.focus(); }}
         />
+      )}
+
+      {/* Cancelamento PROTEGIDO da venda em andamento (exige gerente/admin) */}
+      {modalCancelar && (
+        <div className="modal-overlay" onClick={() => setModalCancelar(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <h3>🔒 Cancelar venda atual</h3>
+            <div style={{ background: "#fef2f2", color: "#991b1b", padding: 12, borderRadius: 8, fontSize: 13, fontWeight: 600 }}>
+              Isto irá cancelar TODOS os itens da venda atual. Requer autorização de gerente/administrador.
+            </div>
+            <div className="form-group">
+              <label>Motivo do cancelamento *</label>
+              <input type="text" value={cancelMotivo} autoFocus
+                onChange={(e) => setCancelMotivo(e.target.value)}
+                placeholder="Ex: cliente desistiu, item errado…" />
+            </div>
+            <div className="form-group">
+              <label>Senha do gerente/administrador *</label>
+              <input type="password" value={cancelSenha}
+                onChange={(e) => setCancelSenha(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmarCancelamento(); }}
+                placeholder="Senha de quem autoriza" />
+            </div>
+            {cancelErro && <div className="cart-erro">⚠️ {cancelErro}</div>}
+            <div className="modal-footer">
+              <button className="btn-mini" onClick={() => setModalCancelar(false)}>Voltar</button>
+              <button className="btn-checkout" style={{ background: "#dc2626" }} disabled={cancelLoading} onClick={confirmarCancelamento}>
+                {cancelLoading ? "Autorizando…" : "Confirmar cancelamento"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

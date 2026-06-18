@@ -69,3 +69,22 @@ export function requirePermissao(chave) {
 export function empresaId(req) {
   return req.usuario?.empresa_id || 1;
 }
+
+// Autorização por supervisor: valida a senha contra QUALQUER usuário ativo
+// ADMIN/GERENTE da empresa. Usado para liberar operações sensíveis
+// (ex.: cancelar venda) sem que o operador comum consiga fazê-lo sozinho.
+export async function autorizarGerente(eid, senha) {
+  if (!senha) return null;
+  const r = await query(
+    `SELECT u.id, u.nome, u.senha_hash, p.chave AS papel
+       FROM usuarios u JOIN papeis p ON p.id = u.papel_id
+      WHERE u.empresa_id = $1 AND u.ativo = TRUE AND p.chave IN ('ADMIN','GERENTE')`,
+    [eid]
+  );
+  for (const u of r.rows) {
+    if (u.senha_hash && (await bcrypt.compare(senha, u.senha_hash))) {
+      return { id: u.id, nome: u.nome, papel: u.papel };
+    }
+  }
+  return null;
+}

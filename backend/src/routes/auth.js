@@ -2,11 +2,32 @@ import { Router } from "express";
 import { query } from "../db.js";
 import {
   assinarToken, verificarSenha, buscarUsuarioPorEmail,
-  permissoesDoUsuario, requireAuth,
+  permissoesDoUsuario, requireAuth, empresaId, autorizarGerente,
 } from "../auth.js";
 import { registrarAuditoria } from "./auditoria.js";
 
 const router = Router();
+
+// POST /api/auth/autorizar-operacao — liberação por supervisor (ADMIN/GERENTE).
+// body: { operacao, senha, motivo }. Usado p/ operações sensíveis (cancelar venda).
+router.post("/autorizar-operacao", requireAuth, async (req, res) => {
+  const eid = empresaId(req);
+  const { operacao, senha, motivo } = req.body || {};
+  if (!operacao) return res.status(400).json({ error: "Informe a operação" });
+  if (!motivo || !motivo.trim()) return res.status(400).json({ error: "Motivo é obrigatório" });
+  if (!senha) return res.status(400).json({ error: "Senha do gerente/administrador é obrigatória" });
+
+  const autorizador = await autorizarGerente(eid, senha);
+  if (!autorizador) {
+    await registrarAuditoria(req.usuario.id, eid, "AUTORIZACAO_NEGADA", operacao, null,
+      `Tentativa de ${operacao} sem autorização válida (operador ${req.usuario.id})`, null, { operacao, motivo });
+    return res.status(403).json({ error: "Senha inválida ou usuário sem permissão (apenas ADMIN/GERENTE)" });
+  }
+  await registrarAuditoria(req.usuario.id, eid, "AUTORIZACAO", operacao, autorizador.id,
+    `Operação ${operacao} autorizada por ${autorizador.nome} (${autorizador.papel}). Motivo: ${motivo}`, null,
+    { operacao, operador_id: req.usuario.id, autorizador_id: autorizador.id, autorizador_nome: autorizador.nome, motivo });
+  res.json({ ok: true, autorizador: { id: autorizador.id, nome: autorizador.nome, papel: autorizador.papel } });
+});
 
 // POST /api/auth/login
 router.post("/login", async (req, res) => {

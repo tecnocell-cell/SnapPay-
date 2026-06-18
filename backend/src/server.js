@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import { pool, query } from "./db.js";
-import { requireAuth, empresaId, requirePermissao } from "./auth.js";
+import { requireAuth, empresaId, requirePermissao, autorizarGerente } from "./auth.js";
 import { registrarAuditoria } from "./routes/auditoria.js";
 import { criarPrecificador } from "./precificacao.js";
 import authRoutes from "./routes/auth.js";
@@ -222,6 +222,15 @@ app.get("/api/vendas", async (req, res) => {
 
 app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async (req, res) => {
   const eid = empresaId(req);
+  const { motivo, senha_autorizacao } = req.body || {};
+  // Autorização protegida: motivo obrigatório + senha de gerente/admin.
+  if (!motivo || !motivo.trim()) return res.status(400).json({ error: "Motivo do cancelamento é obrigatório" });
+  const autorizador = await autorizarGerente(eid, senha_autorizacao);
+  if (!autorizador) {
+    await registrarAuditoria(req.usuario.id, eid, "AUTORIZACAO_NEGADA", "vendas", Number(req.params.id),
+      `Tentativa de cancelar venda #${req.params.id} sem autorização válida`, null, { motivo });
+    return res.status(403).json({ error: "Cancelamento exige senha de gerente/administrador" });
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -255,10 +264,26 @@ app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async 
         [it.produto_id, retornar, `Estorno venda #${req.params.id}`, eid, req.usuario.id, saldoAntes, saldoAntes + retornar, req.params.id]
       );
     }
+    // Estorno do CAIXA conforme a forma de pagamento original (reverte o furo).
+    const caixaAberto = await client.query(
+      "SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO' ORDER BY aberto_em DESC LIMIT 1", [eid]
+    );
+    if (caixaAberto.rowCount > 0) {
+      const pags = await client.query("SELECT forma, valor FROM venda_pagamentos WHERE venda_id = $1", [req.params.id]);
+      for (const pg of pags.rows) {
+        await client.query(
+          "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, forma_pagamento, observacao, empresa_id, usuario_id, referencia_id) VALUES ($1,'DEVOLUCAO',$2,$3,$4,$5,$6,$7)",
+          [caixaAberto.rows[0].id, pg.valor, pg.forma, `Cancelamento venda #${req.params.id}`, eid, req.usuario.id, Number(req.params.id)]
+        );
+      }
+    }
+
     await client.query("UPDATE vendas SET status = 'CANCELADA' WHERE id = $1", [req.params.id]);
     await client.query("COMMIT");
-    await registrarAuditoria(req.usuario.id, eid, "UPDATE", "vendas", Number(req.params.id), `Cancelou venda #${req.params.id}`, null, null);
-    res.json({ ok: true });
+    await registrarAuditoria(req.usuario.id, eid, "CANCELAMENTO_VENDA", "vendas", Number(req.params.id),
+      `Cancelou venda #${req.params.id}. Motivo: ${motivo}. Autorizado por ${autorizador.nome} (${autorizador.papel})`, null,
+      { operador_id: req.usuario.id, autorizador_id: autorizador.id, autorizador_nome: autorizador.nome, motivo });
+    res.json({ ok: true, autorizador: { id: autorizador.id, nome: autorizador.nome } });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);

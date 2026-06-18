@@ -8,21 +8,36 @@ export default function Vendas() {
   const [itemDevolucao, setItemDevolucao] = useState(null);
   const [qtdDevolucao, setQtdDevolucao] = useState(1);
   const [tipoReembolso, setTipoReembolso] = useState("DINHEIRO");
+  // Cancelamento protegido de venda finalizada (senha gerente + motivo)
+  const [cancelModal, setCancelModal] = useState(null); // venda id
+  const [cancelMotivo, setCancelMotivo] = useState("");
+  const [cancelSenha, setCancelSenha] = useState("");
+  const [cancelErro, setCancelErro] = useState("");
+  const [cancelLoading, setCancelLoading] = useState(false);
 
   async function carregar() { setVendas(await api.get("/vendas")); }
   useEffect(() => { carregar(); }, []);
 
   async function verDetalhe(id) { setDetalhe(await api.get(`/vendas/${id}`)); }
 
-  async function cancelarVenda(id) {
-    if (!confirm("⚠️ CANCELAR VENDA INTEIRA?\n\nEsta ação vai anular a VENDA COMPLETA e devolver TODO o estoque.\n\nTem certeza?")) return;
-    if (!confirm("✋ Última confirmação: Você quer CANCELAR TUDO mesmo?")) return;
+  function abrirCancelamento(id) {
+    setCancelModal(id); setCancelMotivo(""); setCancelSenha(""); setCancelErro("");
+  }
+
+  async function confirmarCancelamento() {
+    setCancelErro("");
+    if (!cancelMotivo.trim()) { setCancelErro("Informe o motivo do cancelamento."); return; }
+    if (!cancelSenha) { setCancelErro("Senha do gerente/administrador é obrigatória."); return; }
+    setCancelLoading(true);
     try {
-      await api.post(`/vendas/${id}/cancelar`, {});
+      await api.post(`/vendas/${cancelModal}/cancelar`, { motivo: cancelMotivo, senha_autorizacao: cancelSenha });
+      setCancelModal(null);
       setDetalhe(null);
       carregar();
-      alert("✅ Venda cancelada. Estoque devolvido.");
-    } catch (e) { alert(e.message); }
+      alert("✅ Venda cancelada com autorização. Estoque e caixa estornados.");
+    } catch (e) {
+      setCancelErro(e.status === 403 ? "Senha inválida — apenas ADMIN/GERENTE autorizam." : (e.message || "Falha ao cancelar"));
+    } finally { setCancelLoading(false); }
   }
 
   async function devolverItem(vendaId, item) {
@@ -113,7 +128,7 @@ export default function Vendas() {
                     fontWeight: 700,
                     fontSize: 14
                   }}
-                  onClick={() => cancelarVenda(detalhe.venda.id)}
+                  onClick={() => abrirCancelamento(detalhe.venda.id)}
                 >
                   ❌ CANCELAR VENDA INTEIRA
                 </button>
@@ -212,6 +227,36 @@ export default function Vendas() {
                 style={{ padding: "12px 16px" }}
               >
                 Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cancelModal && (
+        <div className="modal-overlay" onClick={() => setCancelModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <h3>🔒 Cancelar venda #{cancelModal}</h3>
+            <div style={{ background: "#fef2f2", color: "#991b1b", padding: 12, borderRadius: 8, fontSize: 13, fontWeight: 600 }}>
+              Isto irá anular a venda, estornar o estoque e o caixa. Requer autorização de gerente/administrador.
+            </div>
+            <div className="form-group">
+              <label>Motivo do cancelamento *</label>
+              <input type="text" value={cancelMotivo} autoFocus
+                onChange={(e) => setCancelMotivo(e.target.value)} placeholder="Ex: erro de operação, devolução total…" />
+            </div>
+            <div className="form-group">
+              <label>Senha do gerente/administrador *</label>
+              <input type="password" value={cancelSenha}
+                onChange={(e) => setCancelSenha(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmarCancelamento(); }}
+                placeholder="Senha de quem autoriza" />
+            </div>
+            {cancelErro && <div className="alerta-card">⚠️ {cancelErro}</div>}
+            <div className="modal-footer">
+              <button className="btn-mini" onClick={() => setCancelModal(null)}>Voltar</button>
+              <button className="btn-checkout" style={{ background: "#dc2626" }} disabled={cancelLoading} onClick={confirmarCancelamento}>
+                {cancelLoading ? "Autorizando…" : "Confirmar cancelamento"}
               </button>
             </div>
           </div>

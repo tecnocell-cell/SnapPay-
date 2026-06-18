@@ -418,6 +418,9 @@ kbd {
 .vt-cliente:hover { border-color: #6366f1; background: #f5f3ff; }
 .vt-cliente kbd { background: #e2e8f0; color: #475569; }
 
+.vt-cancel-hint { margin-top: 10px; font-size: 11px; color: #94a3b8; text-align: center; line-height: 1.5; }
+.vt-cancel-hint kbd { background: #e2e8f0; color: #475569; }
+
 /* ====================================================================== */
 /* PDV — LAYOUT RESTAURANTE (estrutura independente)                       */
 /* ====================================================================== */
