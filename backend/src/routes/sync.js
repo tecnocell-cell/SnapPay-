@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { query, pool } from "../db.js";
 import { requireAuth, empresaId, requirePermissao } from "../auth.js";
 import { registrarAuditoria } from "./auditoria.js";
+import { criarPrecificador } from "../precificacao.js";
 
 const router = Router();
 
@@ -161,42 +162,74 @@ async function processarVendaOffline(eid, disp, ev, usuarioId) {
   try {
     await client.query("BEGIN");
 
-    // vincula caixa aberto, se houver
-    const caixaQ = await client.query("SELECT id FROM caixas WHERE empresa_id = $1 AND status='ABERTO' ORDER BY aberto_em DESC LIMIT 1", [eid]);
-    const caixaId = caixaQ.rowCount ? caixaQ.rows[0].id : null;
+    // M9 — vincula ao caixa CORRETO: usa o caixa do payload (caixa local da venda).
+    // Se ele estiver fechado, mantém o vínculo e marca divergência (sem cair no caixa
+    // que estiver aberto agora). Sem caixa no payload, usa o aberto (legado).
+    let caixaId = null, caixaDivergente = false;
+    if (p.caixa_id) {
+      const cq = await client.query("SELECT id, status FROM caixas WHERE id=$1 AND empresa_id=$2", [p.caixa_id, eid]);
+      if (cq.rowCount) { caixaId = cq.rows[0].id; caixaDivergente = cq.rows[0].status !== "ABERTO"; }
+    }
+    if (!caixaId) {
+      const caixaQ = await client.query("SELECT id FROM caixas WHERE empresa_id = $1 AND status='ABERTO' ORDER BY aberto_em DESC LIMIT 1", [eid]);
+      caixaId = caixaQ.rowCount ? caixaQ.rows[0].id : null;
+    }
+    const unidadeId = p.unidade_id || null;
 
     const vendaQ = await client.query(
-      `INSERT INTO vendas (cliente_id, status, empresa_id, caixa_id, usuario_id, uuid_sync, origem, device_id, aberta_em, finalizada_em)
-       VALUES ($1,'FINALIZADA',$2,$3,$4,$5,'OFFLINE',$6, COALESCE($7, NOW()), NOW()) RETURNING id`,
-      [p.cliente_id || null, eid, caixaId, usuarioId, uuid, disp.device_id, p.data_venda || null]
+      `INSERT INTO vendas (cliente_id, status, empresa_id, caixa_id, unidade_id, usuario_id, uuid_sync, origem, device_id, aberta_em, finalizada_em)
+       VALUES ($1,'FINALIZADA',$2,$3,$4,$5,$6,'OFFLINE',$7, COALESCE($8, NOW()), NOW()) RETURNING id`,
+      [p.cliente_id || null, eid, caixaId, unidadeId, usuarioId, uuid, disp.device_id, p.data_venda || null]
     );
     const vendaId = vendaQ.rows[0].id;
 
+    // A3 — Preço autoritativo no sync: compara o praticado (offline) com o autorizado.
+    const precificar = await criarPrecificador(client, eid, p.cliente_id || null);
+
     let total = 0;
     let divergencia = null;
+    let divergenciaPreco = false;
+    const divergenciasPreco = [];
+    if (caixaDivergente) divergencia = `Caixa ${p.caixa_id} já estava FECHADO ao sincronizar`;
     for (const it of itens) {
-      // PREÇO PRATICADO no momento da venda (não o atual da nuvem)
+      // PREÇO PRATICADO no momento da venda (não o atual da nuvem) — preservado como valor cobrado.
       const valorTotal = Number(it.quantidade) * Number(it.preco_unitario) - Number(it.desconto || 0);
       total += valorTotal;
-      await client.query(
-        `INSERT INTO venda_itens (venda_id, produto_id, quantidade, preco_unitario, desconto, valor_total)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [vendaId, it.produto_id, it.quantidade, it.preco_unitario, it.desconto || 0, valorTotal]
-      );
       // baixa estoque; se ficar negativo, registra divergência (não bloqueia — venda já ocorreu no caixa)
-      const prodQ = await client.query("SELECT estoque_atual FROM produtos WHERE id=$1 AND empresa_id=$2 FOR UPDATE", [it.produto_id, eid]);
+      const prodQ = await client.query("SELECT id, estoque_atual, preco_venda, categoria_id FROM produtos WHERE id=$1 AND empresa_id=$2 FOR UPDATE", [it.produto_id, eid]);
       const saldoAntes = prodQ.rowCount ? Number(prodQ.rows[0].estoque_atual) : 0;
       const saldoDepois = saldoAntes - Number(it.quantidade);
       if (saldoDepois < 0) divergencia = `Estoque negativo no produto ${it.produto_id} (${saldoDepois})`;
+
+      // Preço autorizado vs praticado
+      let precoAutorizado = Number(it.preco_unitario);
+      if (prodQ.rowCount) {
+        const pr = await precificar(prodQ.rows[0], it.quantidade);
+        precoAutorizado = pr.preco_unitario;
+        if (Number(it.preco_unitario) < precoAutorizado - 0.005) {
+          divergenciaPreco = true;
+          divergenciasPreco.push({ produto_id: it.produto_id, praticado: Number(it.preco_unitario), autorizado: precoAutorizado, diferenca: +(precoAutorizado - Number(it.preco_unitario)).toFixed(2) });
+        }
+      }
+
+      await client.query(
+        `INSERT INTO venda_itens (venda_id, produto_id, quantidade, preco_unitario, desconto, valor_total, preco_base)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [vendaId, it.produto_id, it.quantidade, it.preco_unitario, it.desconto || 0, valorTotal, precoAutorizado]
+      );
       await client.query("UPDATE produtos SET estoque_atual = estoque_atual - $1 WHERE id=$2 AND empresa_id=$3", [it.quantidade, it.produto_id, eid]);
       await client.query(
-        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id)
-         VALUES ($1,'SAIDA_VENDA',$2,$3,$4,$5,$6,$7,'VENDA',$8)`,
-        [it.produto_id, it.quantidade, `Venda offline ${uuid.slice(0, 8)}`, eid, usuarioId, saldoAntes, saldoDepois, vendaId]
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id, unidade_id)
+         VALUES ($1,'SAIDA_VENDA',$2,$3,$4,$5,$6,$7,'VENDA',$8,$9)`,
+        [it.produto_id, it.quantidade, `Venda offline ${uuid.slice(0, 8)}`, eid, usuarioId, saldoAntes, saldoDepois, vendaId, unidadeId]
       );
     }
+    if (divergenciaPreco) {
+      const dif = divergenciasPreco.reduce((a, d) => a + d.diferenca * 1, 0);
+      divergencia = `${divergencia ? divergencia + " | " : ""}Preço abaixo do autorizado (dif total R$ ${dif.toFixed(2)})`;
+    }
 
-    await client.query("UPDATE vendas SET valor_total=$1, divergencia=$2 WHERE id=$3", [total, divergencia, vendaId]);
+    await client.query("UPDATE vendas SET valor_total=$1, divergencia=$2, divergencia_preco=$3 WHERE id=$4", [total, divergencia, divergenciaPreco, vendaId]);
 
     for (const pg of p.pagamentos || []) {
       await client.query("INSERT INTO venda_pagamentos (venda_id, forma, valor) VALUES ($1,$2,$3)", [vendaId, pg.forma, pg.valor]);
@@ -225,7 +258,11 @@ async function processarVendaOffline(eid, disp, ev, usuarioId) {
     );
 
     await client.query("COMMIT");
-    return { venda_id: vendaId, duplicada: false, divergencia };
+    if (divergenciaPreco) {
+      await registrarAuditoria(usuarioId, eid, "SYNC_PRECO_DIVERGENTE", "vendas", vendaId,
+        `Venda offline #${vendaId} sincronizada com preço abaixo do autorizado`, null, { divergencias: divergenciasPreco });
+    }
+    return { venda_id: vendaId, duplicada: false, divergencia, divergencia_preco: divergenciaPreco };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

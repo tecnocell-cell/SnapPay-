@@ -69,6 +69,7 @@ export default function PDV() {
   const [cancelLoading, setCancelLoading] = useState(false);
 
   const buscaRef = useRef(null);
+  const vendaKeyRef = useRef(null); // idempotency_key da venda em curso (A2)
 
   // Carregar dados iniciais
   useEffect(() => {
@@ -226,6 +227,7 @@ export default function PDV() {
     setPagamentos([]);
     setItemSelecionado(null);
     setErro("");
+    vendaKeyRef.current = null; // próxima venda recebe nova idempotency_key
     buscaRef.current?.focus();
   }
 
@@ -311,6 +313,8 @@ export default function PDV() {
 
     // Preço autoritativo: envia os preços do PREVIEW e o total previsto. O backend
     // recalcula e, se divergir, pede confirmação (reconciliação).
+    // A2 — idempotência: mesma chave para o disparo e eventual reenvio (confirmação).
+    const idemKey = vendaKeyRef.current || (vendaKeyRef.current = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`));
     async function enviarVenda(confirmarAjuste) {
       return api.post("/vendas", {
         clienteId: clienteId ? Number(clienteId) : null,
@@ -323,6 +327,7 @@ export default function PDV() {
         pagamentos: pagsPagamento,
         total_esperado: total,
         confirmar_ajuste: confirmarAjuste === true,
+        idempotency_key: idemKey,
       });
     }
 

@@ -94,11 +94,17 @@ router.post("/tabelas/:id/itens", requireAuth, requirePermissao("produtos.editar
   if (!produto_id || preco === undefined) return res.status(400).json({ error: "produto_id e preco são obrigatórios" });
   const t = await query("SELECT id FROM tabelas_preco WHERE id=$1 AND empresa_id=$2", [req.params.id, eid]);
   if (!t.rowCount) return res.status(404).json({ error: "Tabela não encontrada" });
+  // M8 — captura preço anterior p/ auditar antes/depois.
+  const ant = await query("SELECT preco FROM tabela_preco_itens WHERE tabela_id=$1 AND produto_id=$2 AND qtd_min=$3",
+    [req.params.id, produto_id, Number(qtd_min) || 1]);
   const r = await query(
     `INSERT INTO tabela_preco_itens (tabela_id, produto_id, qtd_min, preco) VALUES ($1,$2,$3,$4)
      ON CONFLICT (tabela_id, produto_id, qtd_min) DO UPDATE SET preco=EXCLUDED.preco RETURNING *`,
     [req.params.id, produto_id, Number(qtd_min) || 1, Number(preco)]
   );
+  await registrarAuditoria(req.usuario.id, eid, "PRECO", "tabela_preco_itens", r.rows[0].id,
+    `Preço tabela #${req.params.id} produto ${produto_id} (faixa ${Number(qtd_min) || 1}): R$ ${ant.rows[0]?.preco ?? "—"} → R$ ${Number(preco).toFixed(2)}`,
+    ant.rows[0] || null, r.rows[0]);
   res.status(201).json(r.rows[0]);
 });
 

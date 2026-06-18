@@ -195,10 +195,10 @@ router.put("/:id/receber", requireAuth, requirePermissao("compras.gerenciar"), a
         // Registrar movimentação com saldos
         await client.query(
           `INSERT INTO estoque_movimentacao (
-            produto_id, tipo, quantidade, observacao, empresa_id,
+            produto_id, tipo, quantidade, observacao, empresa_id, usuario_id,
             saldo_anterior, saldo_posterior, origem, origem_id
-          ) VALUES ($1, 'ENTRADA_COMPRA', $2, $3, $4, $5, $6, 'COMPRA', $7)`,
-          [item.produto_id, item.quantidade, `Compra #${req.params.id}`, eid,
+          ) VALUES ($1, 'ENTRADA_COMPRA', $2, $3, $4, $5, $6, $7, 'COMPRA', $8)`,
+          [item.produto_id, item.quantidade, `Compra #${req.params.id}`, eid, req.usuario.id,
             saldoAntes, saldoDepois, req.params.id]
         );
       }

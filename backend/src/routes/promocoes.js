@@ -26,7 +26,11 @@ router.post("/", requireAuth, requirePermissao("produtos.editar"), async (req, r
 });
 
 router.delete("/:id", requireAuth, requirePermissao("produtos.editar"), async (req, res) => {
-  await query("UPDATE promocoes SET ativo=FALSE WHERE id=$1 AND empresa_id=$2", [req.params.id, empresaId(req)]);
+  const eid = empresaId(req);
+  const ant = await query("SELECT * FROM promocoes WHERE id=$1 AND empresa_id=$2", [req.params.id, eid]);
+  await query("UPDATE promocoes SET ativo=FALSE WHERE id=$1 AND empresa_id=$2", [req.params.id, eid]);
+  await registrarAuditoria(req.usuario.id, eid, "PROMOCAO", "promocoes", Number(req.params.id),
+    `Inativou promoção #${req.params.id} (${ant.rows[0]?.nome || ""})`, ant.rows[0] || null, null);
   res.json({ ok: true });
 });
 

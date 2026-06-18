@@ -71,14 +71,30 @@ app.use("/api/unidades", unidadesRoutes);
 app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (req, res) => {
   const eid = empresaId(req);
   const { clienteId, itens } = req.body;
+  const idem = req.body.idempotency_key || req.body.uuid_venda || null;
   if (!itens || itens.length === 0) {
     return res.status(400).json({ error: "Venda sem itens" });
   }
+
+  // A2 — Idempotência: mesma chave devolve a venda já criada (sem duplicar).
+  if (idem) {
+    const ex = await query("SELECT id, valor_total FROM vendas WHERE empresa_id=$1 AND idempotency_key=$2", [eid, idem]);
+    if (ex.rowCount) return res.status(200).json({ id: ex.rows[0].id, total: Number(ex.rows[0].valor_total), idempotent: true });
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // Carrega+bloqueia produtos (FOR UPDATE) e valida estoque (impede venda negativa).
+    // C1 — Caixa aberto define a UNIDADE da venda (matriz vende da matriz, filial da filial).
+    const caixaAberto = await client.query(
+      "SELECT id, unidade_id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO' ORDER BY aberto_em DESC LIMIT 1",
+      [eid]
+    );
+    const caixaId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].id : null;
+    const unidadeId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].unidade_id : null;
+
+    // Carrega+bloqueia produtos (FOR UPDATE) e valida estoque global E por unidade.
     const prodCache = {};
     for (const item of itens) {
       const prod = await client.query(
@@ -89,19 +105,21 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
       if (Number(prod.rows[0].estoque_atual) < Number(item.quantidade)) {
         throw { status: 409, msg: `Estoque insuficiente para "${prod.rows[0].nome}" (disponível: ${Number(prod.rows[0].estoque_atual)})` };
       }
+      if (unidadeId) {
+        const eu = await client.query(
+          "SELECT quantidade FROM estoque_unidade WHERE unidade_id=$1 AND produto_id=$2 FOR UPDATE", [unidadeId, item.produtoId]
+        );
+        const saldoUn = eu.rowCount ? Number(eu.rows[0].quantidade) : 0;
+        if (saldoUn < Number(item.quantidade)) {
+          throw { status: 409, msg: `Estoque insuficiente na unidade para "${prod.rows[0].nome}" (disponível: ${saldoUn})` };
+        }
+      }
       prodCache[item.produtoId] = prod.rows[0];
     }
 
-    // Caixa aberto (se houver) para vincular a venda
-    const caixaAberto = await client.query(
-      "SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO' ORDER BY aberto_em DESC LIMIT 1",
-      [eid]
-    );
-    const caixaId = caixaAberto.rowCount > 0 ? caixaAberto.rows[0].id : null;
-
     const vendaResult = await client.query(
-      "INSERT INTO vendas (cliente_id, status, empresa_id, caixa_id) VALUES ($1, 'ABERTA', $2, $3) RETURNING id",
-      [clienteId || null, eid, caixaId]
+      "INSERT INTO vendas (cliente_id, status, empresa_id, caixa_id, unidade_id, usuario_id, idempotency_key) VALUES ($1, 'ABERTA', $2, $3, $4, $5, $6) RETURNING id",
+      [clienteId || null, eid, caixaId, unidadeId, req.usuario.id, idem]
     );
     const vendaId = vendaResult.rows[0].id;
 
@@ -133,15 +151,23 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
           pr.preco_base, pr.tabela_preco_id, pr.promocao_id, pr.desconto_promo, descontoManual]
       );
       const saldoAntes = Number(prod.estoque_atual);
+      // Estoque global (consolidado) sempre baixa.
       await client.query(
         "UPDATE produtos SET estoque_atual = estoque_atual - $1 WHERE id = $2",
         [item.quantidade, item.produtoId]
       );
+      // C1 — Estoque da UNIDADE do caixa também baixa (multi-loja).
+      if (unidadeId) {
+        await client.query(
+          "UPDATE estoque_unidade SET quantidade = quantidade - $1 WHERE unidade_id=$2 AND produto_id=$3",
+          [item.quantidade, unidadeId, item.produtoId]
+        );
+      }
       const saldoDepois = saldoAntes - Number(item.quantidade);
       await client.query(
-        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id)
-         VALUES ($1, 'SAIDA_VENDA', $2, $3, $4, $5, $6, $7, 'VENDA', $8)`,
-        [item.produtoId, item.quantidade, `Venda #${vendaId}`, eid, req.usuario.id, saldoAntes, saldoDepois, vendaId]
+        `INSERT INTO estoque_movimentacao (produto_id, tipo, quantidade, observacao, empresa_id, usuario_id, saldo_anterior, saldo_posterior, origem, origem_id, unidade_id)
+         VALUES ($1, 'SAIDA_VENDA', $2, $3, $4, $5, $6, $7, 'VENDA', $8, $9)`,
+        [item.produtoId, item.quantidade, `Venda #${vendaId}`, eid, req.usuario.id, saldoAntes, saldoDepois, vendaId, unidadeId]
       );
     }
 
@@ -190,6 +216,11 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
     res.status(201).json({ id: vendaId, total, caixaId });
   } catch (err) {
     await client.query("ROLLBACK");
+    // A2 — corrida de idempotência: a chave já foi gravada por requisição paralela.
+    if (err && err.code === "23505" && idem) {
+      const ex = await query("SELECT id, valor_total FROM vendas WHERE empresa_id=$1 AND idempotency_key=$2", [eid, idem]);
+      if (ex.rowCount) return res.status(200).json({ id: ex.rows[0].id, total: Number(ex.rows[0].valor_total), idempotent: true });
+    }
     if (err && err.status) return res.status(err.status).json({ error: err.msg });
     console.error(err);
     res.status(500).json({ error: "Erro ao finalizar venda" });
@@ -198,7 +229,7 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
   }
 });
 
-app.get("/api/vendas/:id", async (req, res) => {
+app.get("/api/vendas/:id", requirePermissao("vendas.criar"), async (req, res) => {
   const venda = await query("SELECT * FROM vendas WHERE id = $1 AND empresa_id = $2", [req.params.id, empresaId(req)]);
   if (venda.rowCount === 0) return res.status(404).json({ error: "Venda não encontrada" });
   const itens = await query(
@@ -208,7 +239,7 @@ app.get("/api/vendas/:id", async (req, res) => {
   res.json({ venda: venda.rows[0], itens: itens.rows });
 });
 
-app.get("/api/vendas", async (req, res) => {
+app.get("/api/vendas", requirePermissao("vendas.criar"), async (req, res) => {
   const result = await query(
     `SELECT v.id, v.valor_total, v.status, v.aberta_em, v.finalizada_em, c.nome AS cliente_nome,
             (SELECT string_agg(forma, ', ') FROM venda_pagamentos WHERE venda_id = v.id) AS formas
@@ -223,6 +254,7 @@ app.get("/api/vendas", async (req, res) => {
 app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async (req, res) => {
   const eid = empresaId(req);
   const { motivo, senha_autorizacao } = req.body || {};
+  const formaEstorno = (req.body?.forma_estorno || "").toUpperCase();
   // Autorização protegida: motivo obrigatório + senha de gerente/admin.
   if (!motivo || !motivo.trim()) return res.status(400).json({ error: "Motivo do cancelamento é obrigatório" });
   const autorizador = await autorizarGerente(eid, senha_autorizacao);
@@ -234,9 +266,28 @@ app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const venda = await client.query("SELECT status FROM vendas WHERE id = $1 AND empresa_id = $2", [req.params.id, eid]);
+    const venda = await client.query("SELECT status, cliente_id, valor_total FROM vendas WHERE id = $1 AND empresa_id = $2 FOR UPDATE", [req.params.id, eid]);
     if (venda.rowCount === 0) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Venda não encontrada" }); }
     if (venda.rows[0].status === "CANCELADA") { await client.query("ROLLBACK"); return res.status(400).json({ error: "Venda já cancelada" }); }
+
+    // A1 — Nunca cancelar venda finalizada sem registrar impacto financeiro.
+    // forma_estorno: CAIXA (estorna no caixa atual) | CREDITO_LOJA (vale p/ cliente) | AJUSTE_PENDENTE (conta a pagar).
+    const caixaAbertoQ = await client.query("SELECT id FROM caixas WHERE empresa_id=$1 AND status='ABERTO' ORDER BY aberto_em DESC LIMIT 1", [eid]);
+    const temCaixa = caixaAbertoQ.rowCount > 0;
+    const FORMAS_ESTORNO = ["CAIXA", "CREDITO_LOJA", "AJUSTE_PENDENTE"];
+    const forma = formaEstorno || (temCaixa ? "CAIXA" : "");
+    if (!FORMAS_ESTORNO.includes(forma)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Escolha a forma de estorno: CAIXA (exige caixa aberto), CREDITO_LOJA ou AJUSTE_PENDENTE", requer_forma_estorno: true, caixa_aberto: temCaixa });
+    }
+    if (forma === "CAIXA" && !temCaixa) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Não há caixa aberto para estornar. Abra o caixa ou escolha CREDITO_LOJA / AJUSTE_PENDENTE", requer_forma_estorno: true, caixa_aberto: false });
+    }
+    if (forma === "CREDITO_LOJA" && !venda.rows[0].cliente_id) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Crédito de loja exige cliente identificado na venda", requer_forma_estorno: true });
+    }
     // Bloqueia cancelamento se houver nota fiscal autorizada/contingência (deve-se cancelar a nota antes)
     const notaAtiva = await client.query(
       "SELECT id FROM fiscal_notas WHERE venda_id = $1 AND status IN ('AUTORIZADA','CONTINGENCIA')",
@@ -264,26 +315,36 @@ app.post("/api/vendas/:id/cancelar", requirePermissao("vendas.cancelar"), async 
         [it.produto_id, retornar, `Estorno venda #${req.params.id}`, eid, req.usuario.id, saldoAntes, saldoAntes + retornar, req.params.id]
       );
     }
-    // Estorno do CAIXA conforme a forma de pagamento original (reverte o furo).
-    const caixaAberto = await client.query(
-      "SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO' ORDER BY aberto_em DESC LIMIT 1", [eid]
-    );
-    if (caixaAberto.rowCount > 0) {
+    // IMPACTO FINANCEIRO obrigatório conforme a forma escolhida.
+    const valorVenda = Number(venda.rows[0].valor_total) || 0;
+    if (forma === "CAIXA") {
+      // Estorna no caixa atual conforme a forma de pagamento original.
       const pags = await client.query("SELECT forma, valor FROM venda_pagamentos WHERE venda_id = $1", [req.params.id]);
       for (const pg of pags.rows) {
         await client.query(
-          "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, forma_pagamento, observacao, empresa_id, usuario_id, referencia_id) VALUES ($1,'DEVOLUCAO',$2,$3,$4,$5,$6,$7)",
-          [caixaAberto.rows[0].id, pg.valor, pg.forma, `Cancelamento venda #${req.params.id}`, eid, req.usuario.id, Number(req.params.id)]
+          "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, forma_pagamento, observacao, empresa_id, usuario_id, referencia_id, origem) VALUES ($1,'DEVOLUCAO',$2,$3,$4,$5,$6,$7,'CANCELAMENTO')",
+          [caixaAbertoQ.rows[0].id, pg.valor, pg.forma, `Cancelamento venda #${req.params.id}`, eid, req.usuario.id, Number(req.params.id)]
         );
       }
+    } else if (forma === "CREDITO_LOJA") {
+      await client.query(
+        "INSERT INTO creditos_cliente (empresa_id, cliente_id, origem, origem_id, valor, saldo) VALUES ($1,$2,'CANCELAMENTO',$3,$4,$4)",
+        [eid, venda.rows[0].cliente_id, Number(req.params.id), valorVenda]
+      );
+    } else if (forma === "AJUSTE_PENDENTE") {
+      await client.query(
+        `INSERT INTO contas_pagar (empresa_id, fornecedor_id, valor, data_vencimento, status, observacoes, origem, criado_em)
+         VALUES ($1, NULL, $2, CURRENT_DATE, 'PENDENTE', $3, 'ESTORNO_VENDA', NOW())`,
+        [eid, valorVenda, `Estorno pendente do cancelamento da venda #${req.params.id} — ${motivo}`]
+      );
     }
 
     await client.query("UPDATE vendas SET status = 'CANCELADA' WHERE id = $1", [req.params.id]);
     await client.query("COMMIT");
     await registrarAuditoria(req.usuario.id, eid, "CANCELAMENTO_VENDA", "vendas", Number(req.params.id),
-      `Cancelou venda #${req.params.id}. Motivo: ${motivo}. Autorizado por ${autorizador.nome} (${autorizador.papel})`, null,
-      { operador_id: req.usuario.id, autorizador_id: autorizador.id, autorizador_nome: autorizador.nome, motivo });
-    res.json({ ok: true, autorizador: { id: autorizador.id, nome: autorizador.nome } });
+      `Cancelou venda #${req.params.id} (R$ ${valorVenda.toFixed(2)}). Estorno: ${forma}. Motivo: ${motivo}. Autorizado por ${autorizador.nome} (${autorizador.papel})`, null,
+      { operador_id: req.usuario.id, autorizador_id: autorizador.id, autorizador_nome: autorizador.nome, motivo, forma_estorno: forma, valor: valorVenda });
+    res.json({ ok: true, forma_estorno: forma, autorizador: { id: autorizador.id, nome: autorizador.nome } });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);
@@ -427,14 +488,23 @@ app.get("/api/clientes", async (req, res) => {
   res.json(result.rows);
 });
 
-app.post("/api/clientes", async (req, res) => {
-  const { nome, cpf_cnpj, telefone, email, limite_credito } = req.body;
+// M6 — criar cliente exige permissão (vendas.criar); limite de crédito é SENSÍVEL
+// (só ADMIN/GERENTE pode definir > 0). Criação é auditada.
+app.post("/api/clientes", requirePermissao("vendas.criar"), async (req, res) => {
+  const eid = empresaId(req);
+  const { nome, cpf_cnpj, telefone, email } = req.body;
   if (!nome) return res.status(400).json({ error: "Nome obrigatório" });
+  const limite = Number(req.body.limite_credito || 0);
+  if (limite > 0 && !["ADMIN", "GERENTE"].includes(req.usuario.papel)) {
+    return res.status(403).json({ error: "Definir limite de crédito exige ADMIN/GERENTE" });
+  }
   const result = await query(
     `INSERT INTO clientes (nome, cpf_cnpj, telefone, email, limite_credito, empresa_id)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [nome, cpf_cnpj || null, telefone || null, email || null, limite_credito || 0, empresaId(req)]
+    [nome, cpf_cnpj || null, telefone || null, email || null, limite, eid]
   );
+  await registrarAuditoria(req.usuario.id, eid, "CREATE", "clientes", result.rows[0].id,
+    `Criou cliente ${nome}${limite > 0 ? ` (limite R$ ${limite.toFixed(2)})` : ""}`, null, result.rows[0]);
   res.status(201).json(result.rows[0]);
 });
 

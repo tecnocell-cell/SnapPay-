@@ -11,7 +11,9 @@ const SQL_SALDO_DINHEIRO = `
   COALESCE(SUM(CASE
     WHEN tipo IN ('ABERTURA','SUPRIMENTO') THEN valor
     WHEN tipo = 'VENDA' AND forma_pagamento = 'DINHEIRO' THEN valor
+    WHEN tipo = 'RECEBIMENTO' AND forma_pagamento = 'DINHEIRO' THEN valor
     WHEN tipo = 'DEVOLUCAO' AND forma_pagamento = 'DINHEIRO' THEN -valor
+    WHEN tipo = 'DESPESA' AND forma_pagamento = 'DINHEIRO' THEN -valor
     WHEN tipo = 'SANGRIA' THEN -valor
     ELSE 0 END), 0)`;
 
@@ -34,25 +36,31 @@ router.get("/atual", requireAuth, async (req, res) => {
 // POST /api/caixa/abrir
 router.post("/abrir", requireAuth, requirePermissao("caixa.operar"), async (req, res) => {
   const eid = empresaId(req);
-  const aberto = await query("SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO'", [eid]);
-  if (aberto.rowCount > 0) return res.status(400).json({ error: "Já existe caixa aberto" });
   const valor = Number(req.body.valorAbertura || 0);
+  const unidadeId = req.body.unidade_id || null;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // M1 — trava: verificação dentro da transação + índice único parcial
+    // (ux_caixa_aberto_empresa) impede 2 caixas ABERTOS por empresa em corrida.
+    const aberto = await client.query("SELECT id FROM caixas WHERE empresa_id = $1 AND status = 'ABERTO' FOR UPDATE", [eid]);
+    if (aberto.rowCount > 0) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Já existe caixa aberto" }); }
     const c = await client.query(
-      "INSERT INTO caixas (empresa_id, usuario_id, valor_abertura) VALUES ($1,$2,$3) RETURNING *",
-      [eid, req.usuario.id, valor]
+      "INSERT INTO caixas (empresa_id, unidade_id, usuario_id, usuario_abertura_id, valor_abertura) VALUES ($1,$2,$3,$3,$4) RETURNING *",
+      [eid, unidadeId, req.usuario.id, valor]
     );
+    // M2 — movimento de abertura com empresa, usuário, unidade e origem.
     await client.query(
-      "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao) VALUES ($1,'ABERTURA',$2,'Abertura de caixa')",
-      [c.rows[0].id, valor]
+      "INSERT INTO caixa_movimentos (caixa_id, tipo, valor, observacao, empresa_id, usuario_id, unidade_id, origem) VALUES ($1,'ABERTURA',$2,'Abertura de caixa',$3,$4,$5,'ABERTURA')",
+      [c.rows[0].id, valor, eid, req.usuario.id, unidadeId]
     );
     await client.query("COMMIT");
     await registrarAuditoria(req.usuario.id, eid, "CAIXA", "caixas", c.rows[0].id, `Abriu caixa (abertura R$ ${valor})`, null, c.rows[0]);
     res.status(201).json(c.rows[0]);
   } catch (e) {
-    await client.query("ROLLBACK"); console.error(e);
+    await client.query("ROLLBACK");
+    if (e.code === "23505") return res.status(400).json({ error: "Já existe caixa aberto" });
+    console.error(e);
     res.status(500).json({ error: "Erro ao abrir caixa" });
   } finally { client.release(); }
 });

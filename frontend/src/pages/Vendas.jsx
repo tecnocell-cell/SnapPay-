@@ -14,6 +14,7 @@ export default function Vendas() {
   const [cancelSenha, setCancelSenha] = useState("");
   const [cancelErro, setCancelErro] = useState("");
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelFormaEstorno, setCancelFormaEstorno] = useState("CAIXA");
 
   async function carregar() { setVendas(await api.get("/vendas")); }
   useEffect(() => { carregar(); }, []);
@@ -30,13 +31,16 @@ export default function Vendas() {
     if (!cancelSenha) { setCancelErro("Senha do gerente/administrador é obrigatória."); return; }
     setCancelLoading(true);
     try {
-      await api.post(`/vendas/${cancelModal}/cancelar`, { motivo: cancelMotivo, senha_autorizacao: cancelSenha });
+      const r = await api.post(`/vendas/${cancelModal}/cancelar`, { motivo: cancelMotivo, senha_autorizacao: cancelSenha, forma_estorno: cancelFormaEstorno });
       setCancelModal(null);
       setDetalhe(null);
       carregar();
-      alert("✅ Venda cancelada com autorização. Estoque e caixa estornados.");
+      const txt = { CAIXA: "estorno no caixa", CREDITO_LOJA: "crédito para o cliente", AJUSTE_PENDENTE: "ajuste financeiro pendente" }[r.forma_estorno] || r.forma_estorno;
+      alert(`✅ Venda cancelada com autorização. Impacto financeiro: ${txt}.`);
     } catch (e) {
-      setCancelErro(e.status === 403 ? "Senha inválida — apenas ADMIN/GERENTE autorizam." : (e.message || "Falha ao cancelar"));
+      setCancelErro(e.status === 403 ? "Senha inválida — apenas ADMIN/GERENTE autorizam."
+        : e.data?.requer_forma_estorno ? (e.message || "Escolha a forma de estorno")
+        : (e.message || "Falha ao cancelar"));
     } finally { setCancelLoading(false); }
   }
 
@@ -244,6 +248,14 @@ export default function Vendas() {
               <label>Motivo do cancelamento *</label>
               <input type="text" value={cancelMotivo} autoFocus
                 onChange={(e) => setCancelMotivo(e.target.value)} placeholder="Ex: erro de operação, devolução total…" />
+            </div>
+            <div className="form-group">
+              <label>Forma de estorno *</label>
+              <select value={cancelFormaEstorno} onChange={(e) => setCancelFormaEstorno(e.target.value)}>
+                <option value="CAIXA">💵 Estornar no caixa atual (exige caixa aberto)</option>
+                <option value="CREDITO_LOJA">🎟️ Gerar crédito para o cliente</option>
+                <option value="AJUSTE_PENDENTE">📋 Registrar ajuste financeiro pendente</option>
+              </select>
             </div>
             <div className="form-group">
               <label>Senha do gerente/administrador *</label>
