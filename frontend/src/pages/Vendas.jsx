@@ -4,15 +4,42 @@ import { api } from "../lib/api";
 export default function Vendas() {
   const [vendas, setVendas] = useState([]);
   const [detalhe, setDetalhe] = useState(null);
+  const [devolucaoModal, setDevolucaoModal] = useState(false);
+  const [itemDevolucao, setItemDevolucao] = useState(null);
+  const [qtdDevolucao, setQtdDevolucao] = useState(1);
 
   async function carregar() { setVendas(await api.get("/vendas")); }
   useEffect(() => { carregar(); }, []);
 
   async function verDetalhe(id) { setDetalhe(await api.get(`/vendas/${id}`)); }
-  async function cancelar(id) {
-    if (!confirm(`Cancelar a venda #${id}? O estoque será devolvido.`)) return;
-    try { await api.post(`/vendas/${id}/cancelar`, {}); setDetalhe(null); carregar(); }
-    catch (e) { alert(e.message); }
+
+  async function cancelarVenda(id) {
+    if (!confirm("⚠️ CANCELAR VENDA INTEIRA?\n\nEsta ação vai anular a VENDA COMPLETA e devolver TODO o estoque.\n\nTem certeza?")) return;
+    if (!confirm("✋ Última confirmação: Você quer CANCELAR TUDO mesmo?")) return;
+    try {
+      await api.post(`/vendas/${id}/cancelar`, {});
+      setDetalhe(null);
+      carregar();
+      alert("✅ Venda cancelada. Estoque devolvido.");
+    } catch (e) { alert(e.message); }
+  }
+
+  async function devolverItem(vendaId, item) {
+    if (qtdDevolucao <= 0 || qtdDevolucao > item.quantidade) {
+      alert("Quantidade inválida");
+      return;
+    }
+    try {
+      await api.post(`/vendas/${vendaId}/devolver`, {
+        produto_id: item.produto_id,
+        quantidade: qtdDevolucao
+      });
+      setDevolucaoModal(false);
+      setItemDevolucao(null);
+      setQtdDevolucao(1);
+      verDetalhe(vendaId);
+      alert(`✅ Devolução registrada: ${qtdDevolucao} un de ${item.nome}`);
+    } catch (e) { alert(e.message); }
   }
   function badge(status) {
     const cor = status === "FINALIZADA" ? "#22c55e" : status === "CANCELADA" ? "#ef4444" : "#f59e0b";
@@ -47,7 +74,7 @@ export default function Vendas() {
 
       {detalhe && (
         <div className="modal-overlay" onClick={() => setDetalhe(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 500 }}>
             <h3>Venda #{detalhe.venda.id} {badge(detalhe.venda.status)}</h3>
             <p style={{ opacity: 0.7, fontSize: 13 }}>{dataBR(detalhe.venda.finalizada_em || detalhe.venda.aberta_em)}</p>
             <table className="data-table">
@@ -64,11 +91,99 @@ export default function Vendas() {
             <div className="cart-total" style={{ marginTop: 12 }}>
               <span>TOTAL</span><strong>R$ {Number(detalhe.venda.valor_total).toFixed(2)}</strong>
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              {detalhe.venda.status === "FINALIZADA" && (
-                <button className="btn-mini danger" onClick={() => cancelar(detalhe.venda.id)}>Cancelar venda</button>
-              )}
-              <button className="btn-checkout" onClick={() => setDetalhe(null)}>Fechar</button>
+            {detalhe.venda.status === "FINALIZADA" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
+                <button
+                  style={{
+                    padding: "12px 16px",
+                    background: "#7f1d1d",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    fontSize: 14
+                  }}
+                  onClick={() => cancelarVenda(detalhe.venda.id)}
+                >
+                  ❌ CANCELAR VENDA INTEIRA
+                </button>
+                <button
+                  style={{
+                    padding: "12px 16px",
+                    background: "#ea580c",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    fontSize: 14
+                  }}
+                  onClick={() => {
+                    setDevolucaoModal(true);
+                    setItemDevolucao(detalhe.itens[0]);
+                    setQtdDevolucao(1);
+                  }}
+                >
+                  ↩️ DEVOLVER ITENS (Parcial)
+                </button>
+              </div>
+            )}
+            <button className="btn-mini" onClick={() => setDetalhe(null)} style={{ marginTop: 16, width: "100%" }}>Fechar</button>
+          </div>
+        </div>
+      )}
+
+      {devolucaoModal && itemDevolucao && (
+        <div className="modal-overlay" onClick={() => setDevolucaoModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <h3>↩️ Devolver Item</h3>
+            <div style={{ background: "#fef3c7", padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>
+              <strong>Produto:</strong> {itemDevolucao.nome}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "#334155" }}>
+                Quantidade a devolver (máx: {itemDevolucao.quantidade})
+              </label>
+              <input
+                type="number"
+                min="1"
+                max={itemDevolucao.quantidade}
+                value={qtdDevolucao}
+                onChange={(e) => setQtdDevolucao(Number(e.target.value))}
+                style={{
+                  width: "100%",
+                  padding: 10,
+                  border: "2px solid #cbd5e1",
+                  borderRadius: 8,
+                  fontSize: 14,
+                  boxSizing: "border-box"
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => devolverItem(detalhe.venda.id, itemDevolucao)}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  background: "#ea580c",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontWeight: 700
+                }}
+              >
+                Confirmar Devolução
+              </button>
+              <button
+                className="btn-mini"
+                onClick={() => setDevolucaoModal(false)}
+                style={{ padding: "12px 16px" }}
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>
