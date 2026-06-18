@@ -347,8 +347,7 @@ export default function PDV() {
     <div className="venda-lista">
       {carrinho.length === 0 ? (
         <div className="venda-vazia">
-          <div className="venda-marca">💳 SnapPay</div>
-          <p>Passe o código de barras ou pesquise um produto</p>
+          <p>Aguardando leitura de produto…</p>
         </div>
       ) : (
         <>
@@ -417,6 +416,13 @@ export default function PDV() {
         <span>Desconto manual {desconto.final > 0 ? "" : "(F4)"}</span>
         <span>{desconto.final > 0 ? `- R$ ${desconto.final.toFixed(2)}` : "R$ 0,00"}</span>
       </div>
+
+      {/* Cliente aparece ACIMA do total (não escondido abaixo) */}
+      <button className="vt-cliente" onClick={() => setModalCliente(true)} title="Cliente (F2)">
+        <span>👤 {ClienteNome}</span>
+        <kbd>F2</kbd>
+      </button>
+
       <div className="vt-total">
         <span>TOTAL</span>
         <strong>R$ {total.toFixed(2)}</strong>
@@ -430,14 +436,11 @@ export default function PDV() {
       >
         <span style={{ fontSize: 22 }}>✓</span> FINALIZAR VENDA <kbd>F5</kbd>
       </button>
-      <div className="vt-secundario">
-        <button className="btn-mini" onClick={() => setModalCliente(true)} title="Cliente (F2)">
-          👤 {ClienteNome.substring(0, 16)}
+      {carrinho.length > 0 && (
+        <button className="btn-mini danger" style={{ marginTop: 8, width: "100%" }} onClick={cancelarVenda} title="Cancelar (ESC)">
+          ✕ Cancelar venda <kbd>ESC</kbd>
         </button>
-        {carrinho.length > 0 && (
-          <button className="btn-mini danger" onClick={cancelarVenda}>✕ Cancelar</button>
-        )}
-      </div>
+      )}
     </div>
   );
 

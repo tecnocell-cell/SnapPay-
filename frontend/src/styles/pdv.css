@@ -362,10 +362,9 @@ kbd {
 }
 .venda-vazia {
   height: 100%; min-height: 320px; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 12px; color: #cbd5e1;
+  align-items: center; justify-content: center; color: #94a3b8;
 }
-.venda-marca { font-size: 40px; font-weight: 800; color: #e2e8f0; letter-spacing: -1px; }
-.venda-vazia p { font-size: 18px; color: #94a3b8; margin: 0; }
+.venda-vazia p { font-size: 17px; color: #94a3b8; margin: 0; font-weight: 500; }
 
 .venda-linha {
   display: grid; grid-template-columns: 70px 1fr 120px 140px 36px; gap: 10px;
@@ -408,6 +407,16 @@ kbd {
 }
 .vt-secundario { display: flex; gap: 6px; margin-top: 6px; }
 .vt-secundario .btn-mini { flex: 1; }
+
+/* Cliente — acima do total, sempre visível */
+.vt-cliente {
+  display: flex; justify-content: space-between; align-items: center; width: 100%;
+  padding: 10px 12px; margin: 8px 0 4px; border: 1px solid #e2e8f0; border-radius: 8px;
+  background: #f8fafc; cursor: pointer; font-size: 14px; font-weight: 600; color: #334155;
+  box-sizing: border-box;
+}
+.vt-cliente:hover { border-color: #6366f1; background: #f5f3ff; }
+.vt-cliente kbd { background: #e2e8f0; color: #475569; }
 
 /* ====================================================================== */
 /* PDV — LAYOUT RESTAURANTE (estrutura independente)                       */
