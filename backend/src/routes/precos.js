@@ -1,9 +1,58 @@
 import { Router } from "express";
-import { query } from "../db.js";
+import { query, pool } from "../db.js";
 import { requireAuth, empresaId, requirePermissao } from "../auth.js";
 import { registrarAuditoria } from "./auditoria.js";
+import { criarPrecificador } from "../precificacao.js";
 
 const router = Router();
+
+// POST /api/precos/preview — preço AUTORITATIVO de um carrinho (mesma lógica do POST /vendas).
+// O PDV consome este endpoint; nada de cálculo paralelo no navegador.
+// body: { cliente_id, itens:[{ produto_id, quantidade }] }
+router.post("/preview", requireAuth, async (req, res) => {
+  try {
+    const eid = empresaId(req);
+    const { cliente_id, itens } = req.body;
+    if (!Array.isArray(itens)) return res.status(400).json({ error: "itens é obrigatório" });
+    const precificar = await criarPrecificador(pool, eid, cliente_id || null);
+    let subtotal = 0, descontoTotal = 0;
+    const out = [];
+    for (const it of itens) {
+      const prod = (await query(
+        "SELECT id, nome, preco_venda, categoria_id FROM produtos WHERE id=$1 AND empresa_id=$2 AND ativo=TRUE",
+        [it.produto_id, eid]
+      )).rows[0];
+      if (!prod) continue;
+      const qtd = Number(it.quantidade) || 0;
+      const pr = await precificar(prod, qtd);
+      const bruto = +(qtd * pr.preco_unitario).toFixed(2);
+      const desconto = pr.desconto_promo;
+      const valorTotal = +(bruto - desconto).toFixed(2);
+      subtotal += bruto;
+      descontoTotal += desconto;
+      out.push({
+        produto_id: prod.id,
+        produto: prod.nome,
+        quantidade: qtd,
+        preco_base: pr.preco_base,
+        tabela_preco_id: pr.tabela_preco_id,
+        tabela_tipo: pr.tabela_tipo,
+        promocao_id: pr.promocao_id,
+        desconto,
+        preco_final: pr.preco_unitario,
+        valor_total: valorTotal,
+      });
+    }
+    res.json({
+      subtotal: +subtotal.toFixed(2),
+      desconto_total: +descontoTotal.toFixed(2),
+      total: +(subtotal - descontoTotal).toFixed(2),
+      itens: out,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/precos/tabelas — lista tabelas de preço
 router.get("/tabelas", requireAuth, requirePermissao("produtos.ver"), async (req, res) => {

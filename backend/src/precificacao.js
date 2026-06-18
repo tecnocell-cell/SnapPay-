@@ -38,6 +38,11 @@ export async function criarPrecificador(client, eid, clienteId) {
   const padrao = await client.query("SELECT id FROM tabelas_preco WHERE empresa_id=$1 AND padrao=TRUE AND ativo=TRUE LIMIT 1", [eid]);
   const tabelaPadraoId = padrao.rows[0]?.id || null;
   const tabelaId = tabelaClienteId || tabelaPadraoId;
+  let tabelaTipo = null;
+  if (tabelaId) {
+    const t = await client.query("SELECT tipo FROM tabelas_preco WHERE id=$1", [tabelaId]);
+    tabelaTipo = t.rows[0]?.tipo || null;
+  }
 
   const agora = new Date();
   const promos = (await client.query(
@@ -59,6 +64,7 @@ export async function criarPrecificador(client, eid, clienteId) {
       );
       if (r.rowCount) { precoUnitario = Number(r.rows[0].preco); tabelaAplicadaId = tabelaId; faixa = Number(r.rows[0].qtd_min); }
     }
+    const tabelaTipoAplicada = tabelaAplicadaId ? tabelaTipo : null;
 
     const bruto = +(qtd * precoUnitario).toFixed(2);
     let descontoPromo = 0, promocaoId = null;
@@ -78,6 +84,7 @@ export async function criarPrecificador(client, eid, clienteId) {
       preco_base: precoBase,
       preco_unitario: precoUnitario,
       tabela_preco_id: tabelaAplicadaId,
+      tabela_tipo: tabelaTipoAplicada,
       faixa_qtd_min: faixa,
       promocao_id: promocaoId,
       desconto_promo: descontoPromo,

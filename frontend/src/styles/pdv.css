@@ -383,6 +383,10 @@ kbd {
   text-align: center; font-size: 18px; font-weight: 700;
 }
 .vl-nome { font-size: 18px; font-weight: 600; color: #1e293b; }
+.vl-selos { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle; }
+.selo { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+.selo-atacado { background: #eef2ff; color: #4338ca; }
+.selo-promo { background: #fef3c7; color: #b45309; }
 .vl-unit { font-size: 15px; color: #64748b; text-align: right; }
 .vl-total { font-size: 19px; font-weight: 800; color: #16a34a; text-align: right; }
 .vl-x { border: none; background: none; color: #ef4444; cursor: pointer; font-size: 16px; }

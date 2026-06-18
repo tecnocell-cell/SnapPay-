@@ -15,8 +15,11 @@ async function request(endpoint, options = {}) {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(error.message || error.error || "Erro na requisição");
+    const data = await response.json().catch(() => ({ message: response.statusText }));
+    const err = new Error(data.message || data.error || "Erro na requisição");
+    err.status = response.status;
+    err.data = data;
+    throw err;
   }
 
   return response.json();

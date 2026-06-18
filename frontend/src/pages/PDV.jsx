@@ -45,6 +45,9 @@ export default function PDV() {
   const [vendaAtual, setVendaAtual] = useState(null);
   const [erro, setErro] = useState("");
   const [itemSelecionado, setItemSelecionado] = useState(null);
+  // Preço AUTORITATIVO vindo do backend (POST /precos/preview). Nada de cálculo local.
+  const [preview, setPreview] = useState(null);
+  const [previewCarregando, setPreviewCarregando] = useState(false);
 
   // Offline First (transparente para o operador)
   const [online, setOnline] = useState(navigator.onLine);
@@ -123,9 +126,42 @@ export default function PDV() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online]);
 
+  // ---- Preço autoritativo (preview do backend) ----
+  // Recalcula no servidor a cada mudança de carrinho/cliente. Offline: usa o
+  // preço local do produto apenas como fallback (a venda offline já grava o
+  // preço praticado e o backend reconcilia ao sincronizar).
+  const recalcularPreview = useCallback(async () => {
+    if (carrinho.length === 0) { setPreview(null); return; }
+    if (!online) { setPreview(null); return; }
+    setPreviewCarregando(true);
+    try {
+      const r = await api.post("/precos/preview", {
+        cliente_id: clienteId ? Number(clienteId) : null,
+        itens: carrinho.map((i) => ({ produto_id: i.produtoId, quantidade: i.quantidade })),
+      });
+      const porProduto = {};
+      r.itens.forEach((it) => { porProduto[it.produto_id] = it; });
+      setPreview({ ...r, porProduto });
+    } catch {
+      setPreview(null); // fallback local
+    } finally {
+      setPreviewCarregando(false);
+    }
+  }, [carrinho, clienteId, online]);
+
+  useEffect(() => { const t = setTimeout(recalcularPreview, 150); return () => clearTimeout(t); }, [recalcularPreview]);
+
+  // Helpers de exibição: SEMPRE preferem o valor autoritativo do preview.
+  const precoItem = (i) => preview?.porProduto?.[i.produtoId]?.preco_final ?? i.precoUnitario;
+  const totalItem = (i) => preview?.porProduto?.[i.produtoId]?.valor_total ?? (i.quantidade * i.precoUnitario);
+  const infoItem = (i) => preview?.porProduto?.[i.produtoId] || null;
+
   // ---- Carrinho (venda em andamento) ----
-  const subtotal = carrinho.reduce((a, i) => a + i.quantidade * i.precoUnitario, 0);
-  const total = Math.max(0, subtotal - desconto.final);
+  const subtotalLocal = carrinho.reduce((a, i) => a + i.quantidade * i.precoUnitario, 0);
+  const subtotal = preview ? preview.subtotal : subtotalLocal;
+  const descontoPromo = preview ? preview.desconto_total : 0;
+  // total = total autoritativo (base/tabela/promoção) menos o desconto manual do operador
+  const total = Math.max(0, (preview ? preview.total : subtotalLocal) - desconto.final);
 
   function adicionar(p) {
     setErro("");
@@ -252,17 +288,37 @@ export default function PDV() {
       return;
     }
 
-    try {
-      const venda = await api.post("/vendas", {
+    // Preço autoritativo: envia os preços do PREVIEW e o total previsto. O backend
+    // recalcula e, se divergir, pede confirmação (reconciliação).
+    async function enviarVenda(confirmarAjuste) {
+      return api.post("/vendas", {
         clienteId: clienteId ? Number(clienteId) : null,
         itens: carrinho.map((i) => ({
           produtoId: i.produtoId,
           quantidade: i.quantidade,
-          precoUnitario: i.precoUnitario,
-          desconto: desconto.final / carrinho.length,
+          precoUnitario: Number(precoItem(i)),
+          desconto: desconto.final / carrinho.length, // desconto MANUAL distribuído
         })),
         pagamentos: pagsPagamento,
+        total_esperado: total,
+        confirmar_ajuste: confirmarAjuste === true,
       });
+    }
+
+    try {
+      let venda;
+      try {
+        venda = await enviarVenda(false);
+      } catch (err) {
+        // Divergência preview×fechamento: confirma o total correto com o operador.
+        if (err.status === 409 && err.data?.requer_confirmacao) {
+          const ok = confirm(`⚠️ O preço foi recalculado pelo sistema.\n\nTotal correto: R$ ${Number(err.data.total_correto).toFixed(2)}\n(previsto: R$ ${Number(err.data.total_previsto).toFixed(2)})\n\nConfirmar a venda pelo valor correto?`);
+          if (!ok) { setModalPagamento(true); return; }
+          venda = await enviarVenda(true);
+        } else {
+          throw err;
+        }
+      }
 
       const vendaCompleta = await api.get(`/vendas/${venda.id}`);
       setVendaAtual(vendaCompleta);
@@ -303,27 +359,42 @@ export default function PDV() {
             <span className="vl-total">TOTAL</span>
             <span className="vl-x"></span>
           </div>
-          {carrinho.map((i) => (
-            <div
-              key={i.produtoId}
-              className={`venda-linha ${itemSelecionado === i.produtoId ? "selecionada" : ""}`}
-              onClick={() => setItemSelecionado(i.produtoId)}
-            >
-              <input
-                className="vl-qtd-input"
-                type="number"
-                min="1"
-                value={i.quantidade}
-                onChange={(e) => alterarQtd(i.produtoId, Number(e.target.value))}
-                onClick={(e) => e.stopPropagation()}
-                title="Quantidade"
-              />
-              <span className="vl-nome">{i.nome}</span>
-              <span className="vl-unit">R$ {i.precoUnitario.toFixed(2)}</span>
-              <span className="vl-total">R$ {(i.quantidade * i.precoUnitario).toFixed(2)}</span>
-              <button className="vl-x" onClick={(e) => { e.stopPropagation(); remover(i.produtoId); }} title="Remover">✕</button>
-            </div>
-          ))}
+          {carrinho.map((i) => {
+            const info = infoItem(i);
+            const temPromo = info?.promocao_id != null;
+            const temAtacado = info?.tabela_tipo === "ATACADO";
+            const temTabela = info?.tabela_preco_id != null && !temAtacado && info?.preco_final !== info?.preco_base;
+            return (
+              <div
+                key={i.produtoId}
+                className={`venda-linha ${itemSelecionado === i.produtoId ? "selecionada" : ""}`}
+                onClick={() => setItemSelecionado(i.produtoId)}
+              >
+                <input
+                  className="vl-qtd-input"
+                  type="number"
+                  min="1"
+                  value={i.quantidade}
+                  onChange={(e) => alterarQtd(i.produtoId, Number(e.target.value))}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Quantidade"
+                />
+                <span className="vl-nome">
+                  {i.nome}
+                  {(temAtacado || temTabela || temPromo) && (
+                    <span className="vl-selos">
+                      {temAtacado && <span className="selo selo-atacado">🏷️ Atacado</span>}
+                      {temTabela && <span className="selo selo-atacado">🏷️ Preço especial</span>}
+                      {temPromo && <span className="selo selo-promo">🎁 Promoção</span>}
+                    </span>
+                  )}
+                </span>
+                <span className="vl-unit">R$ {Number(precoItem(i)).toFixed(2)}</span>
+                <span className="vl-total">R$ {Number(totalItem(i)).toFixed(2)}</span>
+                <button className="vl-x" onClick={(e) => { e.stopPropagation(); remover(i.produtoId); }} title="Remover">✕</button>
+              </div>
+            );
+          })}
         </>
       )}
     </div>
@@ -333,11 +404,17 @@ export default function PDV() {
   const PainelTotais = (
     <div className="venda-totais">
       <div className="vt-linha">
-        <span>Subtotal</span>
+        <span>Subtotal{previewCarregando ? " ⟳" : ""}</span>
         <span>R$ {subtotal.toFixed(2)}</span>
       </div>
+      {descontoPromo > 0 && (
+        <div className="vt-linha" style={{ color: "#d97706" }}>
+          <span>🎁 Promoção/atacado</span>
+          <span>- R$ {descontoPromo.toFixed(2)}</span>
+        </div>
+      )}
       <div className="vt-linha vt-desc" onClick={() => setModalDesconto(true)} title="Desconto (F4)">
-        <span>Desconto {desconto.final > 0 ? "" : "(F4)"}</span>
+        <span>Desconto manual {desconto.final > 0 ? "" : "(F4)"}</span>
         <span>{desconto.final > 0 ? `- R$ ${desconto.final.toFixed(2)}` : "R$ 0,00"}</span>
       </div>
       <div className="vt-total">

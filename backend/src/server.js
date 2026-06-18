@@ -145,6 +145,26 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
       );
     }
 
+    total = +total.toFixed(2);
+
+    // Reconciliação preview × fechamento: se o total recalculado divergir do
+    // previsto pelo PDV e o operador não confirmou o ajuste, rejeita (e audita).
+    if (req.body.total_esperado != null) {
+      const previsto = Number(req.body.total_esperado);
+      if (Math.abs(total - previsto) > 0.01 && req.body.confirmar_ajuste !== true) {
+        await client.query("ROLLBACK");
+        await registrarAuditoria(req.usuario.id, eid, "DIVERGENCIA_PRECO", "vendas", null,
+          `Divergência preview×fechamento: previsto R$ ${previsto.toFixed(2)}, correto R$ ${total.toFixed(2)}`, null,
+          { previsto, total_correto: total });
+        return res.status(409).json({ error: `Preço recalculado: total correto R$ ${total.toFixed(2)} (previsto R$ ${previsto.toFixed(2)})`, total_correto: total, total_previsto: previsto, requer_confirmacao: true });
+      }
+      if (Math.abs(total - previsto) > 0.01 && req.body.confirmar_ajuste === true) {
+        await registrarAuditoria(req.usuario.id, eid, "AJUSTE_PRECO_CONFIRMADO", "vendas", vendaId,
+          `Operador confirmou ajuste: previsto R$ ${previsto.toFixed(2)}, cobrado R$ ${total.toFixed(2)}`, null,
+          { previsto, total_correto: total });
+      }
+    }
+
     await client.query(
       "UPDATE vendas SET status = 'FINALIZADA', valor_total = $1, finalizada_em = NOW() WHERE id = $2",
       [total, vendaId]
