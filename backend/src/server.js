@@ -26,6 +26,8 @@ import empresaRoutes from "./routes/empresa.js";
 import inventarioRoutes from "./routes/inventario.js";
 import fiscalRoutes from "./routes/fiscal.js";
 import fiscalprofilesRoutes from "./routes/fiscalprofiles.js";
+import fiscaldataRoutes from "./routes/fiscaldata.js";
+import fiscalauditRoutes from "./routes/fiscalaudit.js";
 import syncRoutes from "./routes/sync.js";
 import precosRoutes from "./routes/precos.js";
 import promocoesRoutes from "./routes/promocoes.js";
@@ -72,6 +74,12 @@ app.use("/api/fiscal", fiscalRoutes);
 
 // Fase 9 — Perfis Fiscais (presets por segmento)
 app.use("/api/fiscal-profiles", fiscalprofilesRoutes);
+
+// Fase 9 — Dados Fiscais (NCM, CFOP, CEST)
+app.use("/api/fiscal-data", fiscaldataRoutes);
+
+// Fase 9 — Auditoria Fiscal (mudanças em NCM/CST/alíquotas)
+app.use("/api/fiscal-audit", fiscalauditRoutes);
 
 // Fase 5 — Offline First / sincronização de terminais PDV
 app.use("/api/sync", syncRoutes);
