@@ -5,6 +5,8 @@ import { pool, query } from "./db.js";
 import { requireAuth, empresaId, requirePermissao, autorizarGerente } from "./auth.js";
 import { registrarAuditoria } from "./routes/auditoria.js";
 import { criarPrecificador } from "./precificacao.js";
+// Fase 9 — Motor Tributário
+import { calcularTributacao } from "./services/tributacaoService.js";
 // Fase 8 — Impressão + Auditoria
 import PrinterService from "../local/printer/printerService.js";
 import AuditService from "../local/printer/auditService.js";
@@ -149,6 +151,10 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
     // PREÇO AUTORITATIVO: o servidor recalcula base/tabela/promoção. O preço do PDV é só sugestão.
     const precificar = await criarPrecificador(client, eid, clienteId || null);
 
+    // Buscar UF da empresa para motor tributário
+    const empresaUfRes = await client.query("SELECT uf FROM empresas WHERE id = $1", [eid]);
+    const ufEmpresa = empresaUfRes.rowCount > 0 ? empresaUfRes.rows[0].uf : "SP";
+
     let total = 0;
     for (const item of itens) {
       const prod = prodCache[item.produtoId];
@@ -166,12 +172,36 @@ app.post("/api/vendas", requireAuth, requirePermissao("vendas.criar"), async (re
       const valorTotal = +(bruto - descontoItem).toFixed(2);
       total += valorTotal;
 
+      // Fase 9 — Motor Tributário: calcular ICMS, PIS, COFINS, IPI
+      let tributacao = null;
+      try {
+        tributacao = await calcularTributacao({
+          empresa_id: eid,
+          produto_id: item.produtoId,
+          quantidade: item.quantidade,
+          valor_unitario: pr.preco_unitario,
+          tipo_operacao: "VENDA_CONSUMIDOR",
+          uf_destino: ufEmpresa,
+        });
+      } catch (errTrib) {
+        // Tributação é informativa: se falhar, venda continua mas sem dados fiscais
+        console.warn(`[TRIBUTACAO] Falha ao calcular tributos para item ${item.produtoId}:`, errTrib.message);
+        tributacao = null;
+      }
+
       await client.query(
         `INSERT INTO venda_itens (venda_id, produto_id, quantidade, preco_unitario, desconto, valor_total,
-                                  preco_base, tabela_preco_id, promocao_id, desconto_promo, desconto_manual)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                                  preco_base, tabela_preco_id, promocao_id, desconto_promo, desconto_manual,
+                                  ncm_codigo, cfop_codigo, cst_icms, cst_pis, cst_cofins, cst_ipi,
+                                  aliquota_icms, aliquota_pis, aliquota_cofins, aliquota_ipi,
+                                  base_icms, valor_icms, valor_pis, valor_cofins, valor_ipi)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
         [vendaId, item.produtoId, item.quantidade, pr.preco_unitario, descontoItem, valorTotal,
-          pr.preco_base, pr.tabela_preco_id, pr.promocao_id, pr.desconto_promo, descontoManual]
+          pr.preco_base, pr.tabela_preco_id, pr.promocao_id, pr.desconto_promo, descontoManual,
+          tributacao?.ncm_codigo || null, tributacao?.cfop_codigo || null,
+          tributacao?.cst_icms || null, tributacao?.cst_pis || null, tributacao?.cst_cofins || null, tributacao?.cst_ipi || null,
+          tributacao?.aliquota_icms || null, tributacao?.aliquota_pis || null, tributacao?.aliquota_cofins || null, tributacao?.aliquota_ipi || null,
+          tributacao?.base_icms || null, tributacao?.valor_icms || null, tributacao?.valor_pis || null, tributacao?.valor_cofins || null, tributacao?.valor_ipi || null]
       );
       const saldoAntes = Number(prod.estoque_atual);
       // Estoque global (consolidado) sempre baixa.
