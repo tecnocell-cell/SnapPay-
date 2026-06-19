@@ -330,6 +330,56 @@ app.get("/api/vendas/:id", requirePermissao("vendas.criar"), async (req, res) =>
   res.json({ venda: venda.rows[0], itens: itens.rows });
 });
 
+// Fase 9 — Resumo tributário da venda
+app.get("/api/vendas/:id/resumo-tributario", requirePermissao("vendas.criar"), async (req, res) => {
+  try {
+    const eid = empresaId(req);
+    const vendaId = Number(req.params.id);
+
+    // Validar venda pertence à empresa
+    const vendaRes = await query("SELECT id, valor_total FROM vendas WHERE id = $1 AND empresa_id = $2", [vendaId, eid]);
+    if (vendaRes.rowCount === 0) {
+      return res.status(404).json({ error: "Venda não encontrada" });
+    }
+
+    // Buscar resumo tributário da venda
+    const resumo = await query(
+      `SELECT
+         SUM(valor_icms) as total_icms,
+         SUM(valor_pis) as total_pis,
+         SUM(valor_cofins) as total_cofins,
+         SUM(valor_ipi) as total_ipi,
+         SUM(valor_icms + COALESCE(valor_pis, 0) + COALESCE(valor_cofins, 0) + COALESCE(valor_ipi, 0)) as total_tributos,
+         COUNT(*) as total_itens
+       FROM venda_itens
+       WHERE venda_id = $1`,
+      [vendaId]
+    );
+
+    if (resumo.rowCount === 0) {
+      return res.status(404).json({ error: "Nenhum item na venda" });
+    }
+
+    const row = resumo.rows[0];
+    const valorTotal = Number(vendaRes.rows[0].valor_total);
+
+    res.json({
+      venda_id: vendaId,
+      valor_total: valorTotal,
+      total_icms: parseFloat(row.total_icms) || 0,
+      total_pis: parseFloat(row.total_pis) || 0,
+      total_cofins: parseFloat(row.total_cofins) || 0,
+      total_ipi: parseFloat(row.total_ipi) || 0,
+      total_tributos: parseFloat(row.total_tributos) || 0,
+      percentual_tributos: valorTotal > 0 ? ((parseFloat(row.total_tributos) || 0) / valorTotal * 100).toFixed(2) : 0,
+      total_itens: Number(row.total_itens),
+    });
+  } catch (err) {
+    console.error("[RESUMO_TRIBUTARIO]", err);
+    res.status(500).json({ error: "Erro ao gerar resumo tributário" });
+  }
+});
+
 app.get("/api/vendas", requirePermissao("vendas.criar"), async (req, res) => {
   const result = await query(
     `SELECT v.id, v.valor_total, v.status, v.aberta_em, v.finalizada_em, c.nome AS cliente_nome,
