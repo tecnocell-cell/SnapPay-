@@ -178,7 +178,7 @@ function calcularBaseICMS(valorTotal, cstICMS) {
 }
 
 // Validar se venda pode ser emitida (dados obrigatórios)
-export async function validarEmiissaoNFCe(empresaId, itensVenda) {
+export async function validarEmissaoNFCe(empresaId, itensVenda) {
   const erros = [];
 
   // 1. Validar empresa
