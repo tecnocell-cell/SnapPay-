@@ -1,0 +1,39 @@
+                    ════════════════════════════════════════
+                             SnapPay — Terminal PDV
+                    ════════════════════════════════════════
+
+SuperMercado ABC                                                                
+CNPJ: 12.345.678/0001-99                                                        
+Unidade: Matriz                                                                 
+
+Data: 18/06/2026 20:53:49                                                       
+Venda: 0010042                                                                  
+Operador: Maria                                                                 
+
+┌─ ITENS ────────────────────────────────┐
+Alface (unidade)               1x
+                                  2.50  
+Arroz (5kg)                    1x
+                                 45.00  
+Tomate (kg)                    2x
+                                 16.00  
+Queijo (500g)                  2x
+                                 49.98  
+Leite Integral (1L)            2x
+                                  9.00  
+└─────────────────────────────────────────┘
+
+Subtotal                                                                  122.48
+Desconto                                                                  -12.00
+────────────────────────────────────────
+║ TOTAL                                                                     110. ║
+
+                              Pagamento: DINHEIRO
+
+                    ────────────────────────────────────────
+                              DOCUMENTO NÃO FISCAL
+                    ────────────────────────────────────────
+
+                             Obrigado pela compra!
+                                 SnapPay © 2026
+                    ════════════════════════════════════════

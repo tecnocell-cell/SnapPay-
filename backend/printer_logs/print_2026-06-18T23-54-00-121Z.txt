@@ -1,0 +1,38 @@
+                    ════════════════════════════════════════
+                             SnapPay — Terminal PDV
+                    ════════════════════════════════════════
+
+SuperMercado ABC                                                                
+CNPJ: 12.345.678/0001-99                                                        
+Unidade: Matriz                                                                 
+
+Data: 18/06/2026 20:54:00                                                       
+Venda: 0010004                                                                  
+Operador: Maria                                                                 
+
+┌─ ITENS ────────────────────────────────┐
+Queijo (500g)                  1x
+                                 24.99  
+Açúcar (1kg)                   1x
+                                  7.50  
+Tomate (kg)                    1x
+                                  8.00  
+Leite Integral (1L)            1x
+                                  4.50  
+└─────────────────────────────────────────┘
+
+Subtotal                                                                   44.99
+Desconto                                                                   -4.00
+────────────────────────────────────────
+║ TOTAL                                                                      40. ║
+
+                                 Pagamento: PIX
+                            Código QR: [PIX QR CODE]
+
+                    ────────────────────────────────────────
+                              DOCUMENTO NÃO FISCAL
+                    ────────────────────────────────────────
+
+                             Obrigado pela compra!
+                                 SnapPay © 2026
+                    ════════════════════════════════════════

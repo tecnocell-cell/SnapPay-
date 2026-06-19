@@ -1,0 +1,35 @@
+                    ════════════════════════════════════════
+                             SnapPay — Terminal PDV
+                    ════════════════════════════════════════
+
+Mercadão da Bairro                                                              
+CNPJ: 12.345.678/0001-99                                                        
+Unidade: Matriz                                                                 
+
+Data: 18/06/2026 20:47:35                                                       
+Venda: 0000002                                                                  
+Operador: João Silva                                                            
+
+┌─ ITENS ────────────────────────────────┐
+Leite Integral (1L)            5x
+                                 22.50  
+Queijo Meia Cura (500g)        1x
+                                 24.99  
+Manteiga (250g)                1x
+                                 12.00  
+└─────────────────────────────────────────┘
+
+Subtotal                                                                   89.99
+────────────────────────────────────────
+║ TOTAL                                                                      89. ║
+
+                                 Pagamento: PIX
+                            Código QR: [PIX QR CODE]
+
+                    ────────────────────────────────────────
+                              DOCUMENTO NÃO FISCAL
+                    ────────────────────────────────────────
+
+                             Obrigado pela compra!
+                                 SnapPay © 2026
+                    ════════════════════════════════════════

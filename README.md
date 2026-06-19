@@ -1,47 +1,82 @@
-# 🏪 EasySAC PDV Web
+# 💳 SnapPay — PDV Fiscal Web
 
-**Status:** MVP funcionando ✅ | **Data:** 16/06/2026 | **Última atualização:** 18:08
+**Status:** Fase 9 Completa ✅ | **Data:** 2026-06-19 | **Última atualização:** 16:15
 
 ## 📋 Situação Atual
 
-Um **PDV web moderno e funcional** foi criado a partir do EasySAC (sistema desktop legado em Delphi). O sistema já:
+**SnapPay** é um **PDV web moderno, fiscal e comercial** desenvolvido em Node.js + React. Sistema pronto para operação em homologação com:
 
+### ✅ Operações Comerciais
 ✅ Busca produtos em tempo real  
 ✅ Adiciona itens ao carrinho  
-✅ Calcula impostos automaticamente (ICMS 12%, PIS 1.65%, COFINS 7.6%)  
-✅ Suporta múltiplas formas de pagamento (DINHEIRO, DÉBITO, CRÉDITO, PIX, CREDIÁRIO)  
 ✅ Finaliza vendas e salva no banco  
-✅ Gera cupom fiscal na tela  
-✅ Interface limpa e moderna (sem visual Delphi)  
+✅ Suporta múltiplas formas de pagamento (DINHEIRO, DÉBITO, CRÉDITO, PIX, CREDIÁRIO)  
+
+### ✅ Fiscal — Fase 9 (Motor Tributário)
+✅ Motor tributário completo (ICMS, PIS, COFINS, IPI)  
+✅ 7 Perfis fiscais por segmento de negócio  
+✅ Snapshot fiscal (26 campos persistidos por venda)  
+✅ Validações de emissão (NCM, CNPJ, CRT obrigatórios)  
+✅ NFC-e MOCK para desenvolvimento  
+✅ **NFC-e Real via Nuvem Fiscal em homologação** (bloqueado por credenciais)  
+✅ Contingência fiscal (offline)  
+✅ Auditoria fiscal completa  
+
+### ✅ Validação
+✅ 14 testes de homologação (14/14 VERDE)  
+✅ Build sem erros de sintaxe  
+✅ Arquitetura plugável (provider pattern)  
 
 ---
 
 ## 🗂️ Estrutura do Projeto
 
 ```
-C:\Users\root\Documents\Projetos\EasySAC-Web\
-│
+SnapPay/
 ├── backend/
 │   ├── src/
-│   │   ├── server.js          (API Express - 3 endpoints)
-│   │   └── db.js              (Conexão SQL Server com ODBC Driver 17)
-│   ├── schema.sql             (DDL: produtos, vendas, clientes, pagamentos)
-│   ├── .env                   (Credenciais SQL Server)
-│   ├── package.json
-│   ├── test-odbc.js           (Teste de conexão)
-│   └── node_modules/          (mssql v11, express, cors, dotenv, msnodesqlv8)
+│   │   ├── server.js                    (API Express)
+│   │   ├── services/
+│   │   │   ├── tributacaoService.js    (Motor tributário)
+│   │   │   ├── fiscalProfileService.js (Perfis fiscais)
+│   │   │   └── ...
+│   │   ├── routes/                      (Endpoints)
+│   │   └── fiscal/                      (Provider pattern)
+│   │       ├── providers/mock.js        (NFC-e mock)
+│   │       └── providers/nuvemfiscal.js (NFC-e real)
+│   ├── database/
+│   │   ├── migration_19_cadastro_tributario.sql
+│   │   ├── migration_20_auditoria_fiscal.sql
+│   │   └── ...
+│   └── package.json
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx            (Componente principal - React)
-│   │   ├── App.css            (Design moderno - grid de produtos + carrinho)
-│   │   └── main.jsx
-│   ├── package.json           (Vite, React)
-│   ├── vite.config.js
-│   └── node_modules/
+│   │   ├── pages/
+│   │   │   ├── CadastroEmpresaTributario.jsx
+│   │   │   ├── ConfiguracaoFiscal.jsx
+│   │   │   ├── Produtos.jsx
+│   │   │   └── ...
+│   │   └── lib/
+│   └── package.json
 │
-├── README.md                  (Este arquivo)
-└── ROADMAP.md                 (Próximos passos)
+├── docs/                                (Documentação Organizada)
+│   ├── 01-fase-9/                      (Motor Tributário + NFC-e)
+│   │   ├── FASE_9_SUMMARY.md           ⭐ COMECE AQUI
+│   │   ├── INSTRUCOES_NUVEM_FISCAL.md  (Configuração)
+│   │   ├── ROTEIRO_AMANHA.md           (Checklist)
+│   │   └── ...
+│   ├── 02-relatorios/
+│   ├── 03-planos/
+│   ├── 04-manuais/
+│   ├── 05-testes/
+│   ├── 06-especificacoes/
+│   └── INDEX.md                        (Guia navegação)
+│
+├── README.md                           (Este arquivo)
+├── docker-compose.yml
+├── .env.homolog.example
+└── .gitignore
 ```
 
 ---
@@ -58,26 +93,53 @@ C:\Users\root\Documents\Projetos\EasySAC-Web\
 
 ---
 
+## 📖 Documentação
+
+⭐ **Comece por:** [`docs/01-fase-9/FASE_9_SUMMARY.md`](docs/01-fase-9/FASE_9_SUMMARY.md) (5 min)
+
+**Próximos passos amanhã:**
+1. Configurar Nuvem Fiscal: [`docs/01-fase-9/INSTRUCOES_NUVEM_FISCAL.md`](docs/01-fase-9/INSTRUCOES_NUVEM_FISCAL.md)
+2. Checklist: [`docs/01-fase-9/ROTEIRO_AMANHA.md`](docs/01-fase-9/ROTEIRO_AMANHA.md)
+3. Índice completo: [`docs/INDEX.md`](docs/INDEX.md)
+
+**Status Fase 9:**
+- ✅ Motor Tributário (ICMS, PIS, COFINS, IPI)
+- ✅ 7 Perfis Fiscais
+- ✅ Snapshot Fiscal (26 campos por item)
+- ✅ Homologação (14/14 testes VERDE)
+- 🟡 NFC-e Real (bloqueado por credenciais Nuvem Fiscal)
+
+---
+
 ## 🚀 Como Iniciar
 
 ### 1️⃣ Backend (API)
 
 ```bash
-cd C:\Users\root\Documents\Projetos\EasySAC-Web\backend
+cd backend
+npm install
 npm run dev
 ```
 
-**Esperado:** `API do PDV rodando em http://localhost:3001`
+**Esperado:** `API rodando em http://localhost:3000`
 
 ### 2️⃣ Frontend (React)
 
 ```bash
-cd C:\Users\root\Documents\Projetos\EasySAC-Web\frontend
+cd frontend
+npm install
 npm run dev
 ```
 
-**Esperado:** `VITE v6.0.0 ready in 123 ms`  
+**Esperado:** `VITE ready in 123 ms`  
 **Acesso:** http://localhost:5173
+
+### 3️⃣ Banco de Dados
+
+```bash
+# SQL Server deve estar rodando (Docker ou instalado)
+# Migrations serão executadas automaticamente
+```
 
 ---
 

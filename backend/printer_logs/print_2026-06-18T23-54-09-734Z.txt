@@ -1,0 +1,37 @@
+                    ════════════════════════════════════════
+                             SnapPay — Terminal PDV
+                    ════════════════════════════════════════
+
+SuperMercado ABC                                                                
+CNPJ: 12.345.678/0001-99                                                        
+Unidade: Matriz                                                                 
+
+Data: 18/06/2026 20:54:09                                                       
+Venda: 0010013                                                                  
+Operador: Carlos                                                                
+
+┌─ ITENS ────────────────────────────────┐
+Frango (1kg)                   2x
+                                 31.80  
+Leite Integral (1L)            2x
+                                  9.00  
+Leite Integral (1L)            3x
+                                 13.50  
+Arroz (5kg)                    2x
+                                 90.00  
+└─────────────────────────────────────────┘
+
+Subtotal                                                                  144.30
+────────────────────────────────────────
+║ TOTAL                                                                     144. ║
+
+                               Pagamento: CARTAO
+                                 Bandeira: N/A
+
+                    ────────────────────────────────────────
+                              DOCUMENTO NÃO FISCAL
+                    ────────────────────────────────────────
+
+                             Obrigado pela compra!
+                                 SnapPay © 2026
+                    ════════════════════════════════════════

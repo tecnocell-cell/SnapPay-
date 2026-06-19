@@ -1,0 +1,38 @@
+                    ════════════════════════════════════════
+                             SnapPay — Terminal PDV
+                    ════════════════════════════════════════
+
+SuperMercado ABC                                                                
+CNPJ: 12.345.678/0001-99                                                        
+Unidade: Matriz                                                                 
+
+Data: 18/06/2026 20:53:22                                                       
+Venda: 0010004                                                                  
+Operador: Carlos                                                                
+
+┌─ ITENS ────────────────────────────────┐
+Açúcar (1kg)                   2x
+                                 15.00  
+Frango (1kg)                   3x
+                                 47.70  
+Alface (unidade)               3x
+                                  7.50  
+Frango (1kg)                   1x
+                                 15.90  
+└─────────────────────────────────────────┘
+
+Subtotal                                                                   86.10
+Desconto                                                                   -8.00
+────────────────────────────────────────
+║ TOTAL                                                                      78. ║
+
+                                 Pagamento: PIX
+                            Código QR: [PIX QR CODE]
+
+                    ────────────────────────────────────────
+                              DOCUMENTO NÃO FISCAL
+                    ────────────────────────────────────────
+
+                             Obrigado pela compra!
+                                 SnapPay © 2026
+                    ════════════════════════════════════════
