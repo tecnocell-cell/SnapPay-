@@ -30,6 +30,7 @@ export class MockFiscalProvider extends FiscalProvider {
 
   async emitirNFCe(ctx) {
     const simular = (ctx && ctx.simular) || "AUTORIZAR";
+    const { venda, itens } = ctx || {};
 
     if (simular === "REJEITAR") {
       return {
@@ -53,14 +54,77 @@ export class MockFiscalProvider extends FiscalProvider {
 
     // AUTORIZAR (padrão)
     const chave = this._chaveFake();
+
+    // Fase 9 — Montar XML com dados tributários reais da venda
+    let xmlDetalhes = "";
+    if (itens && Array.isArray(itens)) {
+      xmlDetalhes = itens.map((item, idx) => `
+        <det nItem="${idx + 1}">
+          <infInfAdic>
+            <produto>${item.nome || "Produto"}</produto>
+            <ncm>${item.ncm_codigo || "0"}</ncm>
+            <cfop>${item.cfop_codigo || "5101"}</cfop>
+            <qCom>${item.quantidade}</qCom>
+            <vUnCom>${(item.preco_unitario || 0).toFixed(2)}</vUnCom>
+            <vDesc>${(item.desconto || 0).toFixed(2)}</vDesc>
+            <vItem>${(item.valor_total || 0).toFixed(2)}</vItem>
+            <icms>
+              <cst>${item.cst_icms || "000"}</cst>
+              <aliq>${(item.aliquota_icms || 0).toFixed(2)}</aliq>
+              <vBC>${(item.base_icms || 0).toFixed(2)}</vBC>
+              <v>${(item.valor_icms || 0).toFixed(2)}</v>
+            </icms>
+            <pis>
+              <cst>${item.cst_pis || "01"}</cst>
+              <aliq>${(item.aliquota_pis || 0).toFixed(2)}</aliq>
+              <v>${(item.valor_pis || 0).toFixed(2)}</v>
+            </pis>
+            <cofins>
+              <cst>${item.cst_cofins || "07"}</cst>
+              <aliq>${(item.aliquota_cofins || 0).toFixed(2)}</aliq>
+              <v>${(item.valor_cofins || 0).toFixed(2)}</v>
+            </cofins>
+            <ipi>
+              <cst>${item.cst_ipi || "00"}</cst>
+              <aliq>${(item.aliquota_ipi || 0).toFixed(2)}</aliq>
+              <v>${(item.valor_ipi || 0).toFixed(2)}</v>
+            </ipi>
+          </infInfAdic>
+        </det>
+      `).join("");
+    }
+
+    const valorTotal = (venda?.valor_total || 0).toFixed(2);
+
     return {
       ok: true,
       status: "AUTORIZADA",
       chave_acesso: chave,
       protocolo: "MOCK" + crypto.randomBytes(6).toString("hex").toUpperCase(),
       danfe_url: `/mock/danfe/${chave}.pdf`,
-      xml: `<nfeProc mock="true"><chave>${chave}</chave></nfeProc>`,
-      payload: { mock: true, simular },
+      xml: `<nfeProc mock="true" versao="4.00">
+        <NFe>
+          <infNFe Id="NFe${chave}">
+            <ide>
+              <cUF>35</cUF>
+              <AAMM>${new Date().toISOString().slice(0, 7).replace("-", "")}</AAMM>
+              <assinaturaQRCode>...</assinaturaQRCode>
+            </ide>
+            <emit><CNPJ>${this.config?.cnpj || "00000000000000"}</CNPJ></emit>
+            <dest/>
+            <det>${xmlDetalhes}</det>
+            <total>
+              <vItem>${valorTotal}</vItem>
+              <vTrb>${Math.abs(parseFloat(valorTotal) * 0.27).toFixed(2)}</vTrb>
+            </total>
+            <transp/>
+            <cobr/>
+            <infAdic/>
+          </infNFe>
+        </NFe>
+        <chave>${chave}</chave>
+      </nfeProc>`,
+      payload: { mock: true, simular, itens_count: itens?.length || 0, valor_total: valorTotal },
     };
   }
 
