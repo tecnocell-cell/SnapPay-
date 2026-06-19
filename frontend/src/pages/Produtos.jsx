@@ -11,7 +11,11 @@ const VAZIO = {
   controla_estoque: true, permite_estoque_negativo: false,
   localizacao: "",
   preco_promocional: 0, data_inicio_promo: "", data_fim_promo: "",
-  ncm: "", cest: "", cfop: "", origem: "", unidade_tributavel: "",
+  // Fiscal
+  ncm_codigo: "", cest_codigo: "", cfop_padrao: "", origem_mercadoria: "",
+  cst_icms: "", cst_pis: "", cst_cofins: "", cst_ipi: "",
+  aliquota_icms_padrao: 0, aliquota_pis_padrao: 0, aliquota_cofins_padrao: 0, aliquota_ipi_padrao: 0,
+  perfil_fiscal: "",
 };
 
 export default function Produtos() {
@@ -42,6 +46,35 @@ export default function Produtos() {
 
   useEffect(() => { carregar(); }, []);
   useEffect(() => { const t = setTimeout(carregar, 300); return () => clearTimeout(t); }, [busca, filtroCategoria, filtroEstoque]);
+
+  // Aplicar perfil fiscal automaticamente
+  useEffect(() => {
+    if (form.perfil_fiscal) {
+      aplicarPerfilFiscal(form.perfil_fiscal);
+    }
+  }, [form.perfil_fiscal]);
+
+  async function aplicarPerfilFiscal(perfilId) {
+    try {
+      const perfil = await api.get(`/fiscal-profiles/${perfilId}`);
+      if (perfil) {
+        setForm({
+          ...form,
+          cst_icms: perfil.cst_icms_padrao || "",
+          cst_pis: perfil.cst_pis_padrao || "",
+          cst_cofins: perfil.cst_cofins_padrao || "",
+          cst_ipi: perfil.cst_ipi_padrao || "",
+          aliquota_icms_padrao: perfil.aliquota_icms_padrao || 0,
+          aliquota_pis_padrao: perfil.aliquota_pis_padrao || 0,
+          aliquota_cofins_padrao: perfil.aliquota_cofins_padrao || 0,
+          aliquota_ipi_padrao: perfil.aliquota_ipi_padrao || 0,
+          cfop_padrao: perfil.cfop_padrao || "",
+        });
+      }
+    } catch (err) {
+      console.warn("Erro ao buscar perfil fiscal:", err);
+    }
+  }
 
   function editar(p) {
     setEditando(p.id);
@@ -243,22 +276,68 @@ export default function Produtos() {
           {/* ABA: FISCAL */}
           {abaSelecionada === "fiscal" && (
             <>
-              <div style={{ gridColumn: "1 / -1", color: "#64748b", fontSize: 12 }}>
-                ℹ️ Campos preparados para fase fiscal (não geram emissão nesta fase)
+              <div style={{ gridColumn: "1 / -1" }}>
+                <strong>📋 Classificação Fiscal</strong>
               </div>
 
-              <input placeholder="NCM (20 dígitos)" value={form.ncm} onChange={(e) => setForm({ ...form, ncm: e.target.value })} />
-              <input placeholder="CEST (7 dígitos)" value={form.cest} onChange={(e) => setForm({ ...form, cest: e.target.value })} />
-              <input placeholder="CFOP (4 dígitos)" value={form.cfop} onChange={(e) => setForm({ ...form, cfop: e.target.value })} />
+              <input placeholder="NCM (8 dígitos)" value={form.ncm_codigo} onChange={(e) => setForm({ ...form, ncm_codigo: e.target.value })} maxLength="8" />
+              <input placeholder="CEST (7 dígitos)" value={form.cest_codigo} onChange={(e) => setForm({ ...form, cest_codigo: e.target.value })} maxLength="7" />
+              <input placeholder="CFOP padrão (4 dígitos)" value={form.cfop_padrao} onChange={(e) => setForm({ ...form, cfop_padrao: e.target.value })} maxLength="4" />
 
-              <select value={form.origem} onChange={(e) => setForm({ ...form, origem: e.target.value })}>
+              <select value={form.origem_mercadoria} onChange={(e) => setForm({ ...form, origem_mercadoria: e.target.value })}>
                 <option value="">Origem do produto</option>
                 <option value="0">0 - Nacional</option>
                 <option value="1">1 - Estrangeira (importação direta)</option>
                 <option value="2">2 - Estrangeira (adquirida no mercado interno)</option>
               </select>
 
-              <input placeholder="Unidade tributável" value={form.unidade_tributavel} onChange={(e) => setForm({ ...form, unidade_tributavel: e.target.value })} />
+              <div style={{ gridColumn: "1 / -1" }}>
+                <strong>💳 Código de Situação Tributária (CST)</strong>
+              </div>
+
+              <input placeholder="CST ICMS (3 dígitos)" value={form.cst_icms} onChange={(e) => setForm({ ...form, cst_icms: e.target.value })} maxLength="3" />
+              <input placeholder="CST PIS (2 dígitos)" value={form.cst_pis} onChange={(e) => setForm({ ...form, cst_pis: e.target.value })} maxLength="2" />
+              <input placeholder="CST COFINS (2 dígitos)" value={form.cst_cofins} onChange={(e) => setForm({ ...form, cst_cofins: e.target.value })} maxLength="2" />
+              <input placeholder="CST IPI (2 dígitos)" value={form.cst_ipi} onChange={(e) => setForm({ ...form, cst_ipi: e.target.value })} maxLength="2" />
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <strong>📊 Alíquotas Padrão (%)</strong>
+              </div>
+
+              <div>
+                <label>ICMS (%)</label>
+                <input type="number" step="0.01" value={form.aliquota_icms_padrao} onChange={(e) => setForm({ ...form, aliquota_icms_padrao: parseFloat(e.target.value) || 0 })} placeholder="18.00" />
+              </div>
+
+              <div>
+                <label>PIS (%)</label>
+                <input type="number" step="0.01" value={form.aliquota_pis_padrao} onChange={(e) => setForm({ ...form, aliquota_pis_padrao: parseFloat(e.target.value) || 0 })} placeholder="1.65" />
+              </div>
+
+              <div>
+                <label>COFINS (%)</label>
+                <input type="number" step="0.01" value={form.aliquota_cofins_padrao} onChange={(e) => setForm({ ...form, aliquota_cofins_padrao: parseFloat(e.target.value) || 0 })} placeholder="7.60" />
+              </div>
+
+              <div>
+                <label>IPI (%)</label>
+                <input type="number" step="0.01" value={form.aliquota_ipi_padrao} onChange={(e) => setForm({ ...form, aliquota_ipi_padrao: parseFloat(e.target.value) || 0 })} placeholder="0.00" />
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label>Perfil Fiscal (atalho)</label>
+                <select value={form.perfil_fiscal} onChange={(e) => setForm({ ...form, perfil_fiscal: e.target.value })}>
+                  <option value="">Sem perfil — preencher manualmente</option>
+                  <option value="MERCADO">Mercado / Supermercado</option>
+                  <option value="CONVENIENCIA">Conveniência / Lanchonete</option>
+                  <option value="FARMACIA">Farmácia (medicamentos)</option>
+                  <option value="DISTRIBUIDORA">Distribuidora</option>
+                  <option value="RESTAURANTE">Restaurante / Bar</option>
+                  <option value="MATERIAL_CONSTRUCAO">Material de Construção</option>
+                  <option value="CIGARRO">Tabacaria / Cigarro</option>
+                </select>
+                <small>Preenche automaticamente os campos acima com valores padrão do segmento.</small>
+              </div>
             </>
           )}
 
